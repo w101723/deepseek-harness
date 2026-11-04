@@ -1,4 +1,4 @@
-const state={user:null,workspaces:[],sources:[],datasets:[],dashboards:[],page:'home',workspaceId:null,activeDashboard:null,query:null,messages:[],aiSessions:[],aiSessionId:null,aiMessages:[],aiArtifacts:[],aiTopics:[],aiCanvases:[],aiCanvas:null,aiResult:null,canvasZoom:1,aiArtifactDetail:null,policyEditor:null};
+const state={user:null,workspaces:[],sources:[],datasets:[],dashboards:[],page:'home',workspaceId:null,activeDashboard:null,query:null,messages:[],aiSessions:[],aiSessionId:null,aiMessages:[],aiArtifacts:[],aiTopics:[],aiCanvases:[],aiCanvas:null,aiResult:null,canvasZoom:1,aiArtifactDetail:null,policyEditor:null,aiSchedules:[],aiScheduleRuns:null};
 const app=document.querySelector('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=n=>Number(n||0).toLocaleString('zh-CN',{maximumFractionDigits:2});
@@ -11,7 +11,7 @@ async function api(path,{method='GET',body}={}){
 }
 async function load(){const [w,s,d,boards]=await Promise.all([api('/api/workspaces'),api('/api/datasources'),api('/api/datasets'),api('/api/dashboards')]);state.workspaces=w.items;state.sources=s.items;state.datasets=d.items;state.dashboards=boards.items;if(!state.workspaces.some(x=>x.id===state.workspaceId))state.workspaceId=state.workspaces[0]?.id??null;}
 function navButton(page,label,ico){return `<button data-action="navigate" data-page="${page}" class="${state.page===page?'active':''}"><span class="ico">${ico}</span><span class="caption">${label}</span></button>`;}
-function shell(content){const u=state.user;app.innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="brand-icon">I</div><span><b>Insight BI</b><small>INTELLIGENCE PLATFORM</small></span></div><nav class="nav"><div class="nav-group">工作空间</div>${navButton('home','总览主页','⌂')}${navButton('sources','数据源管理','▣')}${navButton('datasets','数据集建模','▤')}${navButton('query','语义查询','⌕')}<div class="nav-group">一期 · AIPro</div>${navButton('aipro','AIPro 分析','✧')}${navButton('topics','分析主题','⌘')}${navButton('canvas','分析画布','▦')}<div class="nav-group">管理与二期</div>${navButton('dashboards','看板（原型）','▥')}${navButton('audit','操作审计','◷')}</nav><div class="side-bottom"><b>Foundation · v0.5</b><br>真实 API · 持久化 · 权限隔离<br>Harness 原生 BI Tool 可选启用</div></aside><main class="main"><header class="topbar"><div class="breadcrumb">企业分析平台 / ${esc(({home:'工作台',sources:'数据源',datasets:'数据集',query:'查询分析',dashboards:'仪表板',aipro:'AIPro',topics:'分析主题',canvas:'分析画布',audit:'审计日志'})[state.page])}</div><div class="workspace-control"><select class="top-select" id="workspace"><option value="">全部工作空间</option>${state.workspaces.map(w=>`<option value="${esc(w.id)}" ${w.id===state.workspaceId?'selected':''}>${esc(w.name)}</option>`).join('')}</select><div class="avatar">${esc(u.name.slice(0,1))}</div><span class="tiny">${esc(u.name)} · ${esc(u.role)}</span><button class="btn secondary sm" data-action="logout">退出</button></div></header><div class="content">${content}<div class="footer-note">Insight BI Foundation · 独立产品实现，非阿里云官方产品 · 开发预览，不可直接部署为生产环境</div></div></main></div>`;}
+function shell(content){const u=state.user;app.innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="brand-icon">I</div><span><b>Insight BI</b><small>INTELLIGENCE PLATFORM</small></span></div><nav class="nav"><div class="nav-group">工作空间</div>${navButton('home','总览主页','⌂')}${navButton('sources','数据源管理','▣')}${navButton('datasets','数据集建模','▤')}${navButton('query','语义查询','⌕')}<div class="nav-group">一期 · AIPro</div>${navButton('aipro','AIPro 分析','✧')}${navButton('topics','分析主题','⌘')}${navButton('canvas','分析画布','▦')}${navButton('schedules','定时分析','◷')}<div class="nav-group">管理与二期</div>${navButton('dashboards','看板（原型）','▥')}${navButton('audit','操作审计','◷')}</nav><div class="side-bottom"><b>Foundation · v0.5</b><br>真实 API · 持久化 · 权限隔离<br>Harness 原生 BI Tool 可选启用</div></aside><main class="main"><header class="topbar"><div class="breadcrumb">企业分析平台 / ${esc(({home:'工作台',sources:'数据源',datasets:'数据集',query:'查询分析',dashboards:'仪表板',aipro:'AIPro',topics:'分析主题',canvas:'分析画布',schedules:'定时分析',audit:'审计日志'})[state.page])}</div><div class="workspace-control"><select class="top-select" id="workspace"><option value="">全部工作空间</option>${state.workspaces.map(w=>`<option value="${esc(w.id)}" ${w.id===state.workspaceId?'selected':''}>${esc(w.name)}</option>`).join('')}</select><div class="avatar">${esc(u.name.slice(0,1))}</div><span class="tiny">${esc(u.name)} · ${esc(u.role)}</span><button class="btn secondary sm" data-action="logout">退出</button></div></header><div class="content">${content}<div class="footer-note">Insight BI Foundation · 独立产品实现，非阿里云官方产品 · 开发预览，不可直接部署为生产环境</div></div></main></div>`;}
 const title=(eyebrow,heading,action='')=>`<div class="eyebrow">${eyebrow}</div><div class="page-title"><h1>${heading}</h1>${action}</div>`;
 const noData=(hint='暂无数据')=>`<div class="empty"><div class="big">◇</div><p>${esc(hint)}</p></div>`;
 const wp=()=>state.workspaceId||'';
@@ -42,6 +42,44 @@ function dashboardsPage(){const boards=filterWorkspace(state.dashboards);shell(`
 async function openDashboard(dashboardId){try{const {item:d}=await api(`/api/dashboards/${encodeURIComponent(dashboardId)}`);state.activeDashboard=d.id;let parent=document.querySelector('#dashboard-editor');if(!parent)return;const ds=datasets();parent.innerHTML=`<div class="section-title"><h2>${esc(d.name)} <span class="pill">版本 ${d.version}</span></h2><button class="btn secondary sm" data-action="close-dashboard">收起</button></div><div class="dashboard-cards" id="dashboard-charts">${d.widgets.map(w=>`<div class="card" id="widget-${esc(w.id)}"><div class="row spaced"><h3>${esc(w.title)}</h3><span class="tag blue">${esc(w.chart)}</span></div><div class="skeleton"></div></div>`).join('')||noData('这个仪表板尚未添加图表')}</div>${state.user.role==='viewer'?'':`<div class="card form section"><h3>增加组件</h3><form id="add-widget" class="form-row"><label>组件标题<input name="title" value="新的销售图表" required></label><label>数据集<select name="datasetId">${ds.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label><label>分组维度<select name="dimension">${opts(ds[0]?.dimensions||[])}</select></label><label>指标<select name="metric">${opts(ds[0]?.metrics||[])}</select></label><label>图表类型<select name="chart"><option value="bar">柱状图</option><option value="table">明细表</option><option value="line">趋势（当前以柱状形式预览）</option></select></label><button class="btn" ${ds.length?'':'disabled'}>添加并保存</button></form></div>`}`;
   for(const w of d.widgets){const el=document.getElementById(`widget-${w.id}`);if(!el)continue;try{const r=await api('/api/query',{method:'POST',body:{datasetId:w.datasetId,dimensions:[w.dimension],metrics:[w.metric],limit:30}});el.innerHTML=`<div class="row spaced"><h3>${esc(w.title)}</h3><span class="tag blue">${esc(w.chart)}</span></div>${w.chart==='table'?table(r.columns,r.rows):chart(r.rows,w.dimension,w.metric)}`;}catch(e){el.innerHTML=`<p class="error">${esc(e.message)}</p>`;}}
 }catch(e){toast(e.message);}}
+async function loadSchedules(){
+  const data=await api('/api/ai/schedules');
+  state.aiSchedules=data.items;
+}
+function schedulesPage(){
+  const data=datasets(),d=data[0];
+  const choice=(arr)=>arr.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
+  let html=title('AUTOMATED INSIGHTS','定时分析');
+  html+='<div class="notice">周期性执行受控的只读数据集查询，保存最近 50 次分析结果；不做 ETL、同步或外部推送。服务启动期间自动执行到期任务。</div>';
+  html+='<div class="grid two"><div class="card form"><h3>创建定时分析</h3><form id="create-ai-schedule" class="stack">';
+  html+='<label>任务名称<input name="title" maxlength="80" required placeholder="每日报表分析"></label>';
+  html+='<label>数据集<select id="schedule-dataset" name="datasetId">'+data.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+'</select></label>';
+  html+='<div class="form-row"><label>维度<select id="schedule-dimension" name="dimension"><option value="">不分组</option>'+choice(d?.dimensions||[])+'</select></label>';
+  html+='<label>指标<select id="schedule-metric" name="metric">'+choice(d?.metrics||[])+'</select></label></div>';
+  html+='<div class="form-row"><label>筛选字段<select id="schedule-filter" name="filterField"><option value="">无</option>'+choice(d?.dimensions||[])+'</select></label>';
+  html+='<label>筛选值（等于）<input name="filterValue" placeholder="可选"></label></div>';
+  html+='<label>执行周期<select name="intervalMinutes"><option value="15">15 分钟</option><option value="60">每小时</option><option value="1440" selected>每天</option><option value="10080">每周</option></select></label>';
+  html+='<button class="btn" '+(!data.length||state.user.role==='viewer'?'disabled':'')+'>创建任务</button></form></div>';
+  html+='<div class="card"><h3>我的任务</h3><div class="list-items section">';
+  html+=state.aiSchedules.map(x=>{
+    const controls='<button class="btn secondary sm" data-action="schedule-history" data-id="'+esc(x.id)+'">历史</button>'+
+      (state.user.role==='viewer'?'':('<button class="btn secondary sm" data-action="schedule-run" data-id="'+esc(x.id)+'">立即执行</button>'+
+      '<button class="btn secondary sm" data-action="schedule-toggle" data-id="'+esc(x.id)+'" data-version="'+x.version+'" data-enabled="'+x.enabled+'">'+(x.enabled?'暂停':'恢复')+'</button>'));
+    return '<div class="item"><div><b>'+esc(x.title)+'</b><div class="tiny muted">'+(x.enabled?'已启用':'暂停')+
+      ' · '+x.intervalMinutes+' 分钟/次 · v'+x.version+'<br>下次计划：'+esc(new Date(x.nextRunAt).toLocaleString())+'</div></div><div class="row">'+controls+'</div></div>';
+  }).join('')||noData('暂无定时分析任务');
+  html+='</div></div></div>';
+  html+='<div class="card section"><h3>执行历史</h3>';
+  html+=state.aiScheduleRuns?.length?state.aiScheduleRuns.map(r=>
+    '<div class="section"><div class="row spaced"><b>'+(r.status==='success'?'✓ 运行成功':'✕ 运行失败')+
+    '</b><span class="tiny muted">'+esc(new Date(r.startedAt).toLocaleString())+'</span></div>'+
+    (r.summary?'<p class="helper">'+esc(r.summary)+'</p>':'')+
+    (r.error?'<p class="helper">'+esc(r.error)+'</p>':'')+
+    (r.result?resultView(r.result):'<p class="helper">无可用结果（可能已修改数据权限）。</p>')+'</div>'
+  ).join(''):noData('选择任务并点击「历史」');
+  html+='</div>';
+  shell(html);
+}
 async function loadAi(){const [sessions,artifacts,topics,canvases]=await Promise.all([api('/api/ai/sessions'),api('/api/ai/artifacts'),api('/api/ai/topics'),api('/api/ai/canvases')]);state.aiSessions=sessions.items;state.aiArtifacts=artifacts.items;state.aiTopics=topics.items;state.aiCanvases=canvases.items;if(state.aiSessionId){const d=await api(`/api/ai/sessions/${encodeURIComponent(state.aiSessionId)}`);state.aiMessages=d.messages;state.aiResult=d.messages.filter(x=>x.role==='assistant').at(-1)||null;}}
 function aiPage(){const active=state.aiSessions.find(s=>s.id===state.aiSessionId);shell(`${title('AIPro','AI 原生分析工作台')}<div class="grid two ai-layout"><div class="card"><div class="row spaced"><h3>分析会话</h3><span class="tag blue">${active?esc(active.title):'请选择会话'}</span></div><form id="create-ai-session" class="form stack section"><label>选择数据集<select name="datasetId">${datasets().map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></label><label>分析主题（可选）<select name="topicId"><option value="">自由分析</option>${state.aiTopics.filter(t=>t.status==='published').map(t=>`<option value="${esc(t.id)}" data-dataset="${esc(t.dataset_id)}">${esc(t.name)}</option>`).join('')}</select></label><div class="row"><button class="btn" ${datasets().length?'':'disabled'}>+ 新建分析会话</button><span class="helper">会话、结果会持久化</span></div></form><div class="list-items">${state.aiSessions.slice(0,12).map(s=>`<button class="btn secondary sm session-item" data-action="open-ai-session" data-id="${esc(s.id)}">${esc(s.title)} <span class="tiny muted">${esc(s.updated_at)}</span></button>`).join('')||noData('先创建分析会话')}</div><div class="section-title"><h2>对话与追问</h2></div><div class="chat section" id="chat-log">${state.aiMessages.length?state.aiMessages.map(m=>`<div class="bubble ${m.role==='user'?'user':''}">${esc(m.text)}</div>`).join(''):noData('创建会话后开始分析')}</div><form id="ask-ai" class="chat-input"><input name="question" maxlength="500" placeholder="例如：按地区分析销售额；再按品类看成本" required><button class="btn" ${state.aiSessionId?'':'disabled'}>分析 →</button></form></div><div class="card"><div class="row spaced"><h3>查询证据与作品</h3><span class="pill">AIPro · 一期</span></div><div class="notice warn">默认展示确定性分析预览；启用 HARNESS_AGENT_MODE=native 后使用 Harness 原生 bi_catalog / bi_query 工具，模型不获取数据库凭据。请在正式环境配置模型和数据源连接。</div><div class="section" id="ai-chart">${state.aiResult?.result?resultView(state.aiResult.result):noData('分析结果将展示在这里')}</div>${state.aiSessionId&&state.aiResult?`<form id="save-ai-artifact" class="form stack"><label>保存分析作品<input name="name" required value="${esc(active?.title||'分析作品')}"></label><div class="row"><select name="kind"><option value="chart">图表作品</option><option value="report">分析报告</option></select><select name="chart"><option value="bar">柱状图</option><option value="line">折线图</option><option value="table">数据表格</option></select><button class="btn">保存作品</button></div></form>`:''}<div class="section-title"><h2>我的分析作品</h2><span class="pill">${state.aiArtifacts.length}</span></div><div class="list-items">${state.aiArtifacts.map(a=>`<button class="btn secondary sm session-item" data-action="open-ai-artifact" data-id="${esc(a.id)}">${esc(a.name)} · v${a.version}</button>`).join('')||noData('尚未保存作品')}</div><div id="artifact-view" class="section"></div></div></div>`);}
 function topicsPage(){shell(`${title('AI TOPICS','分析主题',state.user.role!=='viewer'?'<span class="pill">草稿 → 发布</span>':'')}<div class="grid two"><div class="card form"><h3>新建分析主题</h3><p class="helper">主题固定数据集和业务解释说明；发布后用于 AIPro 创建分析会话。</p><form id="create-ai-topic" class="stack"><label>名称<input name="name" required maxlength="80" placeholder="销售经营分析"></label><label>数据集<select name="datasetId">${datasets().map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></label><label>业务规则说明<textarea name="description" rows="4" maxlength="5000" placeholder="例如：销售额为订单金额 SUM；仅分析已授权的订单数据"></textarea></label><button class="btn" ${state.user.role==='viewer'||!datasets().length?'disabled':''}>创建草稿</button></form></div><div class="card"><h3>主题列表</h3><div class="list-items section">${state.aiTopics.map(t=>`<div class="item"><div><div class="item-title">${esc(t.name)}</div><div class="item-meta">${esc(t.status)} · v${t.version} · ${esc(t.description)}</div></div>${t.status==='draft'?`<button class="btn secondary sm" data-action="publish-ai-topic" data-id="${esc(t.id)}" data-version="${t.version}">发布</button>`:''}</div>`).join('')||noData('暂无分析主题')}</div></div></div>`);}
@@ -96,11 +134,27 @@ app.addEventListener('pointerup',async()=>{
 });
 app.addEventListener('pointercancel',()=>{if(pointerMove){pointerMove=null;canvasPage();}});
 function auditPage(){shell(`${title('GOVERNANCE','权限与操作审计')}<div class="grid two"><div class="card"><h3>当前身份</h3><div class="stack"><div class="notice">租户：${esc(state.user.tenantName)}</div><div class="notice">用户：${esc(state.user.email)}</div><div class="notice">角色：${esc(state.user.role)}</div></div></div><div class="card"><h3>系统边界</h3><p class="helper">全部资源查询服务端强制 tenant_id，查询同时绑定 workspace_id，操作需校验 Session、角色和 CSRF token。现已支持数据集角色授权、维度和指标白名单、强制行过滤。用户级资源 ACL、SSO 和企业级细粒度策略仍待建设。</p></div></div><div class="section card"><h3>最近操作</h3><div id="audit-log" class="skeleton"></div></div>`);api('/api/audit').then(x=>{const el=document.querySelector('#audit-log');if(el)el.innerHTML=table(['created_at','action','resource_type','resource_id'],x.items);}).catch(e=>{const el=document.querySelector('#audit-log');if(el)el.textContent=e.message;});}
-function render(){if(!state.user){loginPage();return;}({home,sources:sourcesPage,datasets:datasetsPage,query:queryPage,dashboards:dashboardsPage,aipro:aiPage,topics:topicsPage,canvas:canvasPage,audit:auditPage}[state.page]||home)();}
+function render(){if(!state.user){loginPage();return;}({home,sources:sourcesPage,datasets:datasetsPage,query:queryPage,dashboards:dashboardsPage,aipro:aiPage,topics:topicsPage,canvas:canvasPage,schedules:schedulesPage,audit:auditPage}[state.page]||home)();}
 function loginPage(){app.innerHTML=`<div class="login-bg"><div class="login-card"><div class="brand-icon">I</div><h1>登录 Insight BI</h1><p>为数据团队打造的统一 BI 与智能分析平台。</p><form class="form" id="login-form"><label>邮箱<input type="email" name="email" placeholder="name@company.com" required autocomplete="username"></label><label>密码<input type="password" name="password" required autocomplete="current-password"></label><button class="btn">登录工作台 →</button></form><div class="notice warn section">仅当服务以 DEMO_MODE=1 启动时，可用 admin@demo.local / DemoOnly!2026 登录。正式环境请设置 BOOTSTRAP_EMAIL 和 BOOTSTRAP_PASSWORD。</div></div></div>`;}
 const actionHandlers={
-  navigate:async b=>{state.page=b.dataset.page;state.activeDashboard=null;if(['aipro','topics','canvas'].includes(state.page))await loadAi();render();},
+  navigate:async b=>{state.page=b.dataset.page;state.activeDashboard=null;if(['aipro','topics','canvas'].includes(state.page))await loadAi();if(state.page==='schedules')await loadSchedules();render();},
   logout:async()=>{await api('/api/logout',{method:'POST'});state.user=null;render();},
+  'schedule-history':async button=>{
+    const data=await api('/api/ai/schedules/'+encodeURIComponent(button.dataset.id)+'/runs');
+    state.aiScheduleRuns=data.items;schedulesPage();
+  },
+  'schedule-run':async button=>{
+    const id=encodeURIComponent(button.dataset.id);
+    const response=await api('/api/ai/schedules/'+id+'/run',{method:'POST',body:{}});
+    await loadSchedules();
+    state.aiScheduleRuns=(await api('/api/ai/schedules/'+id+'/runs')).items;
+    schedulesPage();toast(response.run.status==='success'?'分析已执行':('运行失败：'+response.run.error));
+  },
+  'schedule-toggle':async button=>{
+    const id=encodeURIComponent(button.dataset.id);
+    await api('/api/ai/schedules/'+id,{method:'PATCH',body:{version:Number(button.dataset.version),enabled:button.dataset.enabled!=='true'}});
+    await loadSchedules();schedulesPage();toast('任务状态已更新');
+  },
   'canvas-zoom-in':()=>{state.canvasZoom=Math.min(1.5,Math.round((state.canvasZoom+0.25)*100)/100);canvasPage();},
   'canvas-zoom-out':()=>{state.canvasZoom=Math.max(0.5,Math.round((state.canvasZoom-0.25)*100)/100);canvasPage();},
   'toggle-source-form':()=>document.querySelector('#source-form')?.classList.toggle('hidden'),
@@ -124,7 +178,11 @@ const actionHandlers={
   'remove-canvas-item':async b=>{const c=state.aiCanvas;const layout=c.layout.filter((_,i)=>i!==Number(b.dataset.index));const r=await api(`/api/ai/canvases/${encodeURIComponent(c.id)}`,{method:'PATCH',body:{version:c.version,layout}});state.aiCanvas={...c,layout,version:r.version};canvasPage();}
 };
 app.addEventListener('click',async e=>{const el=e.target.closest('[data-action]');if(!el)return;const fn=actionHandlers[el.dataset.action];if(!fn)return;e.preventDefault();try{await fn(el);}catch(err){toast(err.message);}});
-app.addEventListener('change',e=>{if(e.target.id==='source-kind'){document.querySelector('#external-fields')?.classList.toggle('hidden',e.target.value==='demo-sqlite');}if(e.target.id==='dataset-source'){refreshDatasetTables();}if(e.target.id==='model-table'){document.querySelector('#model-schema').value=e.target.selectedOptions[0]?.dataset.schema||'';}if(e.target.id==='dataset-policy-role'&&state.policyEditor){state.policyEditor.role=e.target.value;renderDatasetPolicyPanel();}if(e.target.id==='workspace'){state.workspaceId=e.target.value;state.activeDashboard=null;render();}if(e.target.id==='query-dataset'){const d=state.datasets.find(x=>x.id===e.target.value),form=document.querySelector('#query-form');if(d){form.elements.dimension.innerHTML=opts(d.dimensions);form.elements.metric.innerHTML=opts(d.metrics);}}});
+app.addEventListener('change',e=>{if(e.target.id==='source-kind'){document.querySelector('#external-fields')?.classList.toggle('hidden',e.target.value==='demo-sqlite');}if(e.target.id==='dataset-source'){refreshDatasetTables();}if(e.target.id==='model-table'){document.querySelector('#model-schema').value=e.target.selectedOptions[0]?.dataset.schema||'';}if(e.target.id==='dataset-policy-role'&&state.policyEditor){state.policyEditor.role=e.target.value;renderDatasetPolicyPanel();}if(e.target.id==='workspace'){state.workspaceId=e.target.value;state.activeDashboard=null;render();}if(e.target.id==='schedule-dataset'){
+  const d=state.datasets.find(x=>x.id===e.target.value);
+  const dim=document.querySelector('#schedule-dimension'),met=document.querySelector('#schedule-metric'),filter=document.querySelector('#schedule-filter');
+  if(d&&dim&&met&&filter){const choices=xs=>xs.map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');dim.innerHTML='<option value="">不分组</option>'+choices(d.dimensions);met.innerHTML=choices(d.metrics);filter.innerHTML='<option value="">无</option>'+choices(d.dimensions);}
+}if(e.target.id==='query-dataset'){const d=state.datasets.find(x=>x.id===e.target.value),form=document.querySelector('#query-form');if(d){form.elements.dimension.innerHTML=opts(d.dimensions);form.elements.metric.innerHTML=opts(d.metrics);}}});
 app.addEventListener('submit',async e=>{
   const form=e.target;if(!form.id)return;e.preventDefault();const b=Object.fromEntries(new FormData(form));
   try{
@@ -151,6 +209,12 @@ app.addEventListener('submit',async e=>{
       const d=state.dashboards.find(x=>x.id===state.activeDashboard);if(!d)throw new Error('找不到仪表板');
       const result=await api(`/api/dashboards/${d.id}`,{method:'PATCH',body:{version:d.version,widgets:[...d.widgets,{...b}]}});
       toast('图表已保存 v'+result.version);
+    }
+    if(form.id==='create-ai-schedule'){
+      const spec={datasetId:b.datasetId,dimensions:b.dimension?[b.dimension]:[],metrics:[b.metric],
+        filters:b.filterField&&b.filterValue?[{field:b.filterField,op:'eq',value:b.filterValue}]:[],limit:30};
+      await api('/api/ai/schedules',{method:'POST',body:{datasetId:b.datasetId,title:b.title,intervalMinutes:Number(b.intervalMinutes),spec}});
+      await loadSchedules();state.aiScheduleRuns=null;schedulesPage();toast('定时分析任务已创建');return;
     }
     if(form.id==='create-ai-session'){
       if(!b.topicId)delete b.topicId;else{const topic=state.aiTopics.find(t=>t.id===b.topicId);b.datasetId=topic.dataset_id;}
