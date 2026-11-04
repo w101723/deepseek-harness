@@ -12,6 +12,7 @@ import { runNativeBiAgent } from './native-agent.mjs';
 import { exportArtifact } from './artifact-export.mjs';
 import { readableCatalog, listDatasetPolicies, setDatasetPolicy } from './dataset-policy.mjs';
 import { createSession, listSessions, listMessages, analysisSession, askSession, createArtifact, artifacts, artifact, updateArtifact, listTopics, createTopic, publishTopic, listCanvases, getCanvas, createCanvas, updateCanvas } from './analysis.mjs';
+import { listSchedules, getSchedule, createSchedule, updateSchedule, executeSchedule, listScheduleRuns, startScheduleWorker } from './scheduler.mjs';
 
 const publicDir=join(dirname(fileURLToPath(import.meta.url)),'../public');
 const assetMap={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css'};
@@ -215,6 +216,22 @@ export function createApp(opts={}){
           if(updated.changes!==1)fail(409,'版本冲突');audit(db,ctx,'dashboard.update','dashboard',d.id);return json(res,{id:d.id,version:b.version+1});
         }
       }
+      if(path==='/api/ai/schedules'&&method==='GET')return json(res,{items:listSchedules(db,ctx)});
+      if(path==='/api/ai/schedules'&&method==='POST')return json(res,{item:await createSchedule(db,ctx,await bodyJson(req),connectorOptions)},201);
+      const scheduleRoute=/^\/api\/ai\/schedules\/([^/]+)(?:\/(run|runs))?$/.exec(path);
+      if(scheduleRoute){
+        const scheduleId=scheduleRoute[1],op=scheduleRoute[2];
+        // Validate owner and current data permissions for all schedule actions.
+        getSchedule(db,ctx,scheduleId);
+        if(!op&&method==='GET')return json(res,{item:getSchedule(db,ctx,scheduleId)});
+        if(!op&&method==='PATCH')return json(res,{item:await updateSchedule(db,ctx,scheduleId,await bodyJson(req),connectorOptions)});
+        if(op==='runs'&&method==='GET')return json(res,{items:listScheduleRuns(db,ctx,scheduleId)});
+        if(op==='run'&&method==='POST'){
+          requireRole(ctx,'editor');
+          await bodyJson(req);
+          return json(res,{run:await executeSchedule(db,scheduleId,{...connectorOptions,manual:true})});
+        }
+      }
       if(path==='/api/ai/topics'&&method==='GET')return json(res,{items:listTopics(db,ctx)});
       if(path==='/api/ai/topics'&&method==='POST')return json(res,createTopic(db,ctx,await bodyJson(req)),201);
       let topicRoute=/^\/api\/ai\/topics\/([^/]+)\/publish$/.exec(path);
@@ -283,11 +300,15 @@ export function createApp(opts={}){
       json(res,{error:status===500?'服务器内部错误':e.message},status);
     }
   });
-  server.on('close',()=>db.close());
+  let worker;
+  if(opts.autoSchedules){
+    server.on('listening',()=>{worker=startScheduleWorker(db,{...connectorOptions,onError:()=>console.error('[schedule worker] failed')});});
+  }
+  server.on('close',()=>{worker?.stop();db.close();});
   return {server,db};
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
-  const opts={dbPath:process.env.DB_PATH||'./data/quickbi.sqlite',demoMode:process.env.DEMO_MODE==='1',bootstrapEmail:process.env.BOOTSTRAP_EMAIL,bootstrapPassword:process.env.BOOTSTRAP_PASSWORD,harnessEnabled:process.env.HARNESS_ENABLE==='1',harnessHome:process.env.HARNESS_HOME,nativeAgentEnabled:process.env.HARNESS_AGENT_MODE==='native'};
+  const opts={dbPath:process.env.DB_PATH||'./data/quickbi.sqlite',demoMode:process.env.DEMO_MODE==='1',bootstrapEmail:process.env.BOOTSTRAP_EMAIL,bootstrapPassword:process.env.BOOTSTRAP_PASSWORD,harnessEnabled:process.env.HARNESS_ENABLE==='1',harnessHome:process.env.HARNESS_HOME,nativeAgentEnabled:process.env.HARNESS_AGENT_MODE==='native',autoSchedules:process.env.SCHEDULE_WORKER_ENABLED!=='0'};
   const {server}=createApp(opts),port=Number(process.env.PORT||3088),host=process.env.HOST||'127.0.0.1';
   server.listen(port,host,()=>console.log(`QuickBI platform listening at http://${host}:${port} (DEMO_MODE=${opts.demoMode})`));
 }
