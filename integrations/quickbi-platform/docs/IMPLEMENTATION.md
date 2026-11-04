@@ -7,16 +7,16 @@
 - Old `datasources` schema migrates to the expanded multi-engine table, retaining existing datasets.
 - Browser application includes actual source connection form, dataset table selection, AIPro session, saved artifacts, topics and canvas layout view.
 
-## Implemented, but awaiting verification in an actual database environment
+## Implemented; verification scope and remaining production gates
 
-- `pg` adapter for PostgreSQL, and `mysql2` adapter for MySQL/TiDB/StarRocks compatibility.
+- `pg` adapter verified against a real PostgreSQL 16 CI service and `mysql2` adapter verified against a real MySQL 8.4 CI service. TiDB and StarRocks remain protocol-level adapters and require their own live compatibility runs.
 - Read-only semantic query compiler and database SQL dialect support.
 - Optional DeepSeek Harness planning/narration SDK path. The existing tests inject a fake planner, **not** a real DeepSeek model or native agent tool.
 
 ## Out of scope / still pending
 
 - **ETL removed entirely** (no data movement, transformations, sync or materialization).
-- External connection live smoke against real MySQL, PostgreSQL, TiDB, StarRocks; TLS validation; TLS defaults need deployment hardening.
+- External connection live smoke against real TiDB and StarRocks; production TLS/certificate validation, public-network protections, and quotas still require deployment hardening.
 - Per-user/group resource ACL, inherited policies, SSO, secure production infrastructure and database connection pooling. **Role-scoped dataset dimension/metric allowlists and mandatory row predicates are now implemented and tested**, but not production-hardened.
 - Native Harness `bi_catalog` and `bi_query` Cordis tool plugin + scoped loopback bridge added and locally tested with an injected fake Agent. Actual SDK/plugin/model end-to-end integration has **not** been verified; full Skill/MCP/complex multi-agent planning remains.
 - Basic canvas drag/resize/zoom + editable artifact metadata added; multi-user collaboration, full infinite canvas UX, sophisticated charts, enterprise gallery and report generation remain.
@@ -68,3 +68,12 @@ Tenant isolation for external sources is metadata/source-ownership isolation. Un
 - Business notes are supplied to model planning as bounded untrusted context, while all QuerySpec and data authorization remain server-controlled.
 - A frontend editor manages topic instructions and knowledge; tests cover access isolation, stale versions, publish/republish and model context forwarding.
 - This is an application feature implementation and does **not** establish real-model or external-database end-to-end acceptance.
+
+## Batch 08: real database integration gate (2026-11-04)
+
+- GitHub Actions now runs disposable **PostgreSQL 16** and **MySQL 8.4** servers in a separate `live-postgres-mysql` job; it installs real `pg` and `mysql2` drivers and uses actual SELECT-only accounts.
+- Both databases passed HTTP source creation, authentication, metadata discovery, table preview, semantic dataset, grouped SUM/COUNT, parameterized SQL injection checks, AIPro session creation/analysis and persisted artifact retrieval.
+- The integration test attempted INSERT through each real read-only connector and verified rejection and unchanged row count.
+- The first MySQL 8.4 run exposed uppercase `information_schema` result field names; explicit SQL aliases in `src/connectors.mjs` fixed table/column discovery. This issue was **not caught by fake drivers**.
+- CI evidence: [run 41811774198](https://github.com/w101723/deepseek-harness/actions/runs/41811774198), both jobs passed; live test 3/3 (PostgreSQL + MySQL + parent), existing unit suite also passed.
+- These tests prove the disposable CI environments only. **Real TiDB/StarRocks servers, external TLS/certificate policy and a real DeepSeek Harness model/tool round remain unverified.**
