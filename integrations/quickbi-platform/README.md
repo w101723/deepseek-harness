@@ -1,6 +1,6 @@
-# Insight BI · Quick BI + AIPro 全平台复刻（工程基础版）
+# Insight BI · AIPro + 数据接入（一期）／看板（二期）
 
-> 项目按 `quickbi_full_rebuild_control_matrix_v1.xlsx` 与 `quickbi_full_rebuild_blueprint_v1.md` 开发。本仓库的代码是 **M0/M1 可运行切片**，**不是** 343 项功能已经完成，也非阿里云官方产品。遵守独立实现，不包含 Quick BI 专有代码、品牌资源或私有接口。
+> **当前实施范围以 [docs/PHASE_SCOPE.md](docs/PHASE_SCOPE.md) 为准：一期 AIPro + 真实数据接入，二期仅做图表/看板；ETL 全部移除，传统 BI 其他形态暂不开发。** 旧版全平台蓝图和 343 项矩阵仅作历史参考。本仓库目前只是基础可运行切片，AIPro 一期尚未闭环，也非阿里云官方产品。
 
 ## 已实现且可实际操作
 
@@ -63,6 +63,6 @@ JSON 修改请求除登录外需携带来自 `/api/me` 的 `x-csrf-token`，所�
 {"datasetId":"<你的数据集 ID>","dimensions":["region"],"metrics":["revenue"],"filters":[{"field":"region","op":"eq","value":"华东"}],"limit":20}
 ```
 
-## 本次边界与下一步
+## 当前交付与优先级（以两期规划为准）
 
-`docs/IMPLEMENTATION.md` 维护与功能台账 ID 对应的实现范围。M0-01/M0-04/M0-05 的基础能力、M1 的只读查询最小闭环属于本批；OIDC、细粒度 ACL、外部数据连接器、表关系建模、完整传统 BI 编辑器、AIPro 无限画布等尚未开发。不要将示例 UI 当成“156 个页面已复刻”。
+`docs/IMPLEMENTATION.md` 维护与功能台账 ID 对应的实现范围。M0-01/M0-04/M0-05 的基础能力、M1 的只读查询最小闭环属于本批；OIDC、细粒度 ACL、**真实外部数据连接器**、AIPro 多轮 Agent/主题/画布/作品等尚未开发。原有仪表板只是早期原型，暂不继续扩展，排入二期；**ETL 不开发**。不要将示例 UI 当成“156 个页面已复刻”。
