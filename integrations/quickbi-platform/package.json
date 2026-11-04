@@ -11,7 +11,8 @@
     "start": "node src/server.mjs",
     "dev": "DEMO_MODE=1 node src/server.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:live": "node scripts/live-smoke.mjs"
+    "test:live": "node scripts/live-smoke.mjs",
+    "test:integration": "node --test test-live/*.test.mjs"
   },
   "optionalDependencies": {
     "@deepseek-ai/dsh-sdk-client": "0.2.2-alpha.3",

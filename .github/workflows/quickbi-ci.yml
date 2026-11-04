@@ -19,3 +19,45 @@ jobs:
           node-version: '22'
       - run: node --check src/server.mjs && node --check src/query.mjs && node --check src/db.mjs && node --check public/app.js
       - run: npm test
+
+  live-postgres-mysql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-postgres-pass
+          POSTGRES_DB: quickbi_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quickbi_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-pass
+          MYSQL_DATABASE: quickbi_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-root-pass"
+          --health-interval 5s --health-timeout 5s --health-retries 25
+    defaults:
+      run:
+        working-directory: integrations/quickbi-platform
+    env:
+      QBI_LIVE_PG_PASSWORD: ci-postgres-pass
+      QBI_LIVE_MYSQL_ROOT_PASSWORD: ci-root-pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install real database drivers
+        run: npm install --no-audit --no-fund --ignore-scripts
+      - name: Verify database driver versions
+        run: node -e "console.log('pg:',require('pg/package.json').version, 'mysql2:',require('mysql2/package.json').version)"
+      - name: Real database end-to-end tests
+        run: npm run test:integration
