@@ -62,6 +62,8 @@ export function openDatabase(path = ':memory:', { demoMode = false, bootstrapEma
     CREATE INDEX IF NOT EXISTS idx_analysis_artifacts ON analysis_artifacts(tenant_id,workspace_id);
     CREATE TABLE IF NOT EXISTS analysis_session_topics(session_id TEXT PRIMARY KEY,topic_id TEXT NOT NULL, FOREIGN KEY(session_id) REFERENCES analysis_sessions(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS analysis_topics(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,workspace_id TEXT NOT NULL,owner_id TEXT NOT NULL,dataset_id TEXT NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published')),version INTEGER NOT NULL DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS analysis_topic_knowledge(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,topic_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('glossary','rule','example')),title TEXT NOT NULL,content TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(topic_id) REFERENCES analysis_topics(id) ON DELETE CASCADE);
+    CREATE INDEX IF NOT EXISTS idx_topic_knowledge ON analysis_topic_knowledge(tenant_id,topic_id);
     CREATE TABLE IF NOT EXISTS analysis_canvases(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,workspace_id TEXT NOT NULL,user_id TEXT NOT NULL,session_id TEXT NOT NULL,name TEXT NOT NULL,layout_json TEXT NOT NULL DEFAULT '[]',version INTEGER NOT NULL DEFAULT 1,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE INDEX IF NOT EXISTS idx_analysis_topics ON analysis_topics(tenant_id,workspace_id);
     CREATE INDEX IF NOT EXISTS idx_analysis_canvases ON analysis_canvases(tenant_id,user_id);
@@ -74,6 +76,12 @@ export function openDatabase(path = ':memory:', { demoMode = false, bootstrapEma
     CREATE INDEX IF NOT EXISTS idx_analysis_schedule_runs_recent ON analysis_schedule_runs(schedule_id,started_at DESC);
     CREATE TABLE IF NOT EXISTS dataset_policy_generations(tenant_id TEXT NOT NULL,dataset_id TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(tenant_id,dataset_id),FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE);
   `);
+  // Bind existing sessions to the topic version present during this migration.
+  const topicLinkColumns=db.prepare('PRAGMA table_info(analysis_session_topics)').all();
+  if(!topicLinkColumns.some(c=>c.name==='topic_version')){
+    db.exec('ALTER TABLE analysis_session_topics ADD COLUMN topic_version INTEGER NOT NULL DEFAULT 0');
+    db.exec('UPDATE analysis_session_topics SET topic_version=COALESCE((SELECT version FROM analysis_topics WHERE id=topic_id),0)');
+  }
   // Historical AI artifacts cannot become a side door around newly restricted policies.
   for(const table of ['analysis_messages','analysis_artifacts']){
     const columns=db.prepare(`PRAGMA table_info(${table})`).all();

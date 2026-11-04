@@ -123,3 +123,7 @@ Save an AIPro analysis as **图表作品** or **分析报告**, open the saved w
 Node 服务启动后默认每 30 秒检查到期任务；设置 `SCHEDULE_WORKER_ENABLED=0` 禁用。支持 15、30、60、180、360、720、1440、10080 分钟周期。每次执行重新检查发起者角色和策略修订，授权变化后旧结果不可再读取。调度目前是**单实例 SQLite 租约实现**，不提供高可用、漏执行补偿、分布式调度或邮件/IM 推送，**不得直接作为生产级定时任务平台**。
 
 API：`GET/POST /api/ai/schedules`、`GET/PATCH /api/ai/schedules/:id`、`POST /api/ai/schedules/:id/run`、`GET /api/ai/schedules/:id/runs`。
+
+### AIPro business topic knowledge
+
+Theme drafts now support a versioned glossary, business rules, and examples, managed from **分析主题 → 管理知识**. Edits demote published themes to drafts; existing analysis sessions are pinned to their original topic revision. REST contract and security notes: [docs/TOPIC_KNOWLEDGE.md](docs/TOPIC_KNOWLEDGE.md).

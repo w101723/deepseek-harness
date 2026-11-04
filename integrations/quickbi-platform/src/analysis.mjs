@@ -3,6 +3,7 @@ import { InputError, getDataset, suggestSpec } from './query.mjs';
 import { executeAnyQuery } from './query-external.mjs';
 import { planWithHarness, narrateWithHarness } from './harness.mjs';
 import { readableCatalog, datasetPolicyRevision } from './dataset-policy.mjs';
+import { sessionTopicContext } from './topic-knowledge.mjs';
 
 export function analysisSession(db,ctx,sessionId){
   const row=db.prepare('SELECT * FROM analysis_sessions WHERE id=? AND tenant_id=? AND user_id=?').get(sessionId,ctx.tenantId,ctx.userId);
@@ -29,7 +30,7 @@ export function createSession(db,ctx,{datasetId,title='',topicId}={}){
   }
   const sessionId=id();
   db.prepare('INSERT INTO analysis_sessions(id,tenant_id,workspace_id,user_id,dataset_id,title) VALUES (?,?,?,?,?,?)').run(sessionId,ctx.tenantId,ds.workspace_id,ctx.userId,ds.id,title.trim()||'新分析');
-  if(topicId)db.prepare('INSERT INTO analysis_session_topics(session_id,topic_id) VALUES (?,?)').run(sessionId,topicId);
+  if(topicId){const linked=db.prepare('SELECT version FROM analysis_topics WHERE id=? AND tenant_id=?').get(topicId,ctx.tenantId);db.prepare('INSERT INTO analysis_session_topics(session_id,topic_id,topic_version) VALUES (?,?,?)').run(sessionId,topicId,linked.version);}
   audit(db,ctx,'analysis.session.create','session',sessionId);
   return {id:sessionId,title:title.trim()||'新分析',datasetId:ds.id};
 }
@@ -67,11 +68,11 @@ export async function askSession(db,ctx,sessionId,question,options={}){
   const allowed=readableCatalog(db,ctx,dataset);
   const rawCatalog=external?JSON.parse(external.definition_json):{dimensions:JSON.parse(dataset.dimensions_json),metrics:Object.fromEntries(JSON.parse(dataset.metrics_json).map(m=>[m,{kind:'builtin'}]))};
   const catalog={dimensions:allowed.dimensions,metrics:Object.fromEntries(Object.entries(rawCatalog.metrics).filter(([m])=>allowed.metrics.includes(m)))};
-  const theme=db.prepare('SELECT t.name,t.description FROM analysis_topics t JOIN analysis_session_topics st ON st.topic_id=t.id WHERE st.session_id=? AND t.tenant_id=?').get(sessionId,ctx.tenantId);
-  if(theme)catalog.topic={name:theme.name,description:theme.description};
+  const theme=sessionTopicContext(db,ctx,sessionId);
+  if(theme)catalog.topic={name:theme.name,description:theme.description,knowledge:theme.knowledge.map(k=>({kind:k.kind,title:k.title,content:k.content}))};
   let spec,mode='deterministic-preview',result,toolTrace=[],summary;
   if(options.runAgent){
-    const planned=await options.runAgent({session,question,history:messages.slice(-8),topic:theme?.description||''});
+    const planned=await options.runAgent({session,question,history:messages.slice(-8),topic:theme?.prompt||''});
     if(!planned?.spec||!planned.result)throw new InputError('Agent 未生成可验证的查询结果',422);
     spec=planned.spec;result=planned.result;summary=String(planned.summary||'数据查询已完成').slice(0,5000);
     toolTrace=planned.toolTrace??[];mode='native-agent-tools';
@@ -91,6 +92,8 @@ export async function askSession(db,ctx,sessionId,question,options={}){
   if(!actor || actor.role!==ctx.role)throw new InputError('分析期间角色已变更，请重新运行',403);
   readableCatalog(db,ctx,dataset);
   if(datasetPolicyRevision(db,ctx,dataset.id)!==initialRevision)throw new InputError('数据权限在分析期间发生变化，请重新查询',409);
+  // A topic edited or unpublished mid-run cannot silently change analysis grounding.
+  if(theme)sessionTopicContext(db,ctx,sessionId);
   const userId=id(),assistantId=id();
   db.exec('BEGIN IMMEDIATE');
   try{
@@ -144,7 +147,7 @@ export function updateArtifact(db,ctx,artifactId,{version,name,chart}={}){
   return {id:artifactId,version:version+1};
 }
 
-export function listTopics(db,ctx){return db.prepare("SELECT id,name,description,version,status,dataset_id,workspace_id FROM analysis_topics WHERE tenant_id=? AND (status='published' OR owner_id=?) ORDER BY created_at DESC").all(ctx.tenantId,ctx.userId);}
+export function listTopics(db,ctx){return db.prepare("SELECT id,name,description,version,status,dataset_id,workspace_id,owner_id FROM analysis_topics WHERE tenant_id=? AND (status='published' OR owner_id=?) ORDER BY created_at DESC").all(ctx.tenantId,ctx.userId).filter(t=>{try{readableCatalog(db,ctx,getDataset(db,ctx,t.dataset_id));return true;}catch(e){if([403,404].includes(e.status))return false;throw e;}});}
 export function createTopic(db,ctx,{datasetId,name,description=''}={}){
   if(ctx.role==='viewer')throw new InputError('没有创建主题的权限',403);
   const ds=getDataset(db,ctx,datasetId);

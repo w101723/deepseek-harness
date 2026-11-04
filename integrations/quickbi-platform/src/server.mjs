@@ -12,6 +12,7 @@ import { runNativeBiAgent } from './native-agent.mjs';
 import { exportArtifact } from './artifact-export.mjs';
 import { readableCatalog, listDatasetPolicies, setDatasetPolicy } from './dataset-policy.mjs';
 import { createSession, listSessions, listMessages, analysisSession, askSession, createArtifact, artifacts, artifact, updateArtifact, listTopics, createTopic, publishTopic, listCanvases, getCanvas, createCanvas, updateCanvas } from './analysis.mjs';
+import { topicDetails, listTopicKnowledge, updateTopic, addTopicKnowledge, removeTopicKnowledge } from './topic-knowledge.mjs';
 import { listSchedules, getSchedule, createSchedule, updateSchedule, executeSchedule, listScheduleRuns, startScheduleWorker } from './scheduler.mjs';
 
 const publicDir=join(dirname(fileURLToPath(import.meta.url)),'../public');
@@ -239,6 +240,14 @@ export function createApp(opts={}){
       if(path==='/api/ai/topics'&&method==='POST')return json(res,createTopic(db,ctx,await bodyJson(req)),201);
       let topicRoute=/^\/api\/ai\/topics\/([^/]+)\/publish$/.exec(path);
       if(topicRoute&&method==='POST')return json(res,publishTopic(db,ctx,topicRoute[1],(await bodyJson(req)).version));
+      const topicKnowledgeItem=/^\/api\/ai\/topics\/([^/]+)\/knowledge\/([^/]+)$/.exec(path);
+      if(topicKnowledgeItem&&method==='DELETE'){const b=await bodyJson(req);return json(res,removeTopicKnowledge(db,ctx,topicKnowledgeItem[1],topicKnowledgeItem[2],b.version));}
+      const topicKnowledgeRoute=/^\/api\/ai\/topics\/([^/]+)\/knowledge$/.exec(path);
+      if(topicKnowledgeRoute&&method==='GET')return json(res,{items:listTopicKnowledge(db,ctx,topicKnowledgeRoute[1])});
+      if(topicKnowledgeRoute&&method==='POST')return json(res,addTopicKnowledge(db,ctx,topicKnowledgeRoute[1],await bodyJson(req)),201);
+      const topicInfoRoute=/^\/api\/ai\/topics\/([^/]+)$/.exec(path);
+      if(topicInfoRoute&&method==='GET')return json(res,{item:topicDetails(db,ctx,topicInfoRoute[1])});
+      if(topicInfoRoute&&method==='PATCH')return json(res,updateTopic(db,ctx,topicInfoRoute[1],await bodyJson(req)));
       if(path==='/api/ai/canvases'&&method==='GET')return json(res,{items:listCanvases(db,ctx)});
       if(path==='/api/ai/canvases'&&method==='POST')return json(res,createCanvas(db,ctx,await bodyJson(req)),201);
       const canvasRoute=/^\/api\/ai\/canvases\/([^/]+)$/.exec(path);

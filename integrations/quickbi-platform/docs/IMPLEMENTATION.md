@@ -60,3 +60,11 @@ Tenant isolation for external sources is metadata/source-ownership isolation. Un
 - Added Web UI for creating, manually running, pausing, resuming and inspecting recurring tasks.
 - Added automated tests: scheduled query contracts, policy invalidation, concurrency lease and restart recovery.
 - **No ETL/data movement**; no external delivery, distributed scheduler, retry guarantees or live DB smoke proof.
+
+## Batch 07: AIPro knowledge topics (2026-11-04)
+
+- Added per-topic business glossary/rules/examples with owner-only editing, 20-item limit, audit log and versioned REST APIs.
+- Published topics become drafts after edits; analysis sessions pin the topic version, so edits cannot silently alter an active session.
+- Business notes are supplied to model planning as bounded untrusted context, while all QuerySpec and data authorization remain server-controlled.
+- A frontend editor manages topic instructions and knowledge; tests cover access isolation, stale versions, publish/republish and model context forwarding.
+- This is an application feature implementation and does **not** establish real-model or external-database end-to-end acceptance.
