@@ -15,3 +15,7 @@ All ETL/data cleaning/transformation/synchronization/extraction acceleration; tr
 3. Harness native BI tool: plugin/HTTP-capability code and fake-Agent tests added; verify official SDK + model live execution and iterative analysis quality.
 4. Canvas interactivity, saved analysis artifact editing, scheduled analysis.
 5. Actual enterprise data end-to-end acceptance with errors, security and resource limits.
+
+### Phase 1: recurring AIPro analysis
+
+Recurring analysis runs an existing permitted read-only QuerySpec, stores bounded evidence and errors, and revalidates access on every execution. It is not ETL. HA scheduling, missed-run catch-up and external notification integrations remain pending.
