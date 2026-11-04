@@ -25,6 +25,7 @@ const one=(db,sql,...params)=>db.prepare(sql).get(...params);
 const roleRank={viewer:1,editor:2,admin:3};
 const rateLimit=new Map();
 function requireRole(ctx,role){if((roleRank[ctx.role]||0)<roleRank[role])fail(403,'没有该操作权限');}
+function assertCurrentRole(db,ctx){const active=one(db,'SELECT role FROM memberships WHERE tenant_id=? AND user_id=?',ctx.tenantId,ctx.userId);if(!active || active.role!==ctx.role)fail(403,'请求执行期间身份权限发生变化');}
 function sessionFromRequest(db,req){
   const match=/(?:^|;\s*)session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'');
   if(!match)fail(401,'尚未登录');
@@ -148,6 +149,7 @@ export function createApp(opts={}){
             sealed=encryptCredentials(config);
             if(opts.skipConnectionValidation!==true){await testSource({kind:b.kind,connection_json:sealed},connectorOptions);}
           }
+          assertCurrentRole(db,ctx);
           const newId=id();db.prepare('INSERT INTO datasources(id,tenant_id,workspace_id,name,kind,connection_json) VALUES (?,?,?,?,?,?)').run(newId,ctx.tenantId,b.workspaceId,name(b.name),b.kind,sealed);
           audit(db,ctx,'datasource.create','datasource',newId);return json(res,{id:newId},201);
         }
@@ -158,7 +160,7 @@ export function createApp(opts={}){
         if(ds.kind!=='demo-sqlite'){
           requireRole(ctx,'editor');
           const response=m[2]==='test'?await testSource(ds,connectorOptions):m[2]==='schema'?await sourceSchema(ds,connectorOptions):await sourcePreview(ds,connectorOptions);
-          audit(db,ctx,`datasource.${m[2]}`,'datasource',ds.id);return json(res,response);
+          assertCurrentRole(db,ctx);audit(db,ctx,`datasource.${m[2]}`,'datasource',ds.id);return json(res,response);
         }
         if(m[2]==='test')return json(res,{ok:true,kind:ds.kind});
         if(m[2]==='schema')return json(res,{tables:[{schema:'main',name:'sales_demo',fields:['order_date','region','category','channel','revenue','cost','quantity'],columns:[{name:'region',type:'text'},{name:'revenue',type:'real'}]}],kind:ds.kind});
@@ -177,6 +179,7 @@ export function createApp(opts={}){
             model=await createExternalModel(db,ctx,ds,{schema:b.schema,table:b.table},connectorOptions);
             dims=model.dimensions;metrics=Object.keys(model.metrics);
           }
+          assertCurrentRole(db,ctx);
           const newId=id();db.prepare('INSERT INTO datasets(id,tenant_id,workspace_id,datasource_id,name,dimensions_json,metrics_json) VALUES (?,?,?,?,?,?,?)').run(newId,ctx.tenantId,ds.workspace_id,ds.id,name(b.name),JSON.stringify([...new Set(dims)]),JSON.stringify([...new Set(metrics)]));
           if(model)db.prepare('INSERT INTO external_dataset_models(dataset_id,schema_name,table_name,definition_json) VALUES (?,?,?,?)').run(newId,model.schema,model.table,JSON.stringify(model));
           audit(db,ctx,'dataset.create','dataset',newId);return json(res,{id:newId,version:1},201);
