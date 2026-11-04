@@ -1,0 +1,16 @@
+{
+  "name": "@w101723/quickbi-platform-foundation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent BI platform foundation integrated with DeepSeek Harness through an opt-in SDK boundary",
+  "engines": { "node": ">=22.14" },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "DEMO_MODE=1 node src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "optionalDependencies": {
+    "@deepseek-ai/dsh-sdk-client": "0.2.2-alpha.3"
+  }
+}

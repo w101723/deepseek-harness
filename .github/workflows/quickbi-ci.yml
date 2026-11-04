@@ -1,0 +1,21 @@
+name: QuickBI foundation checks
+on:
+  push:
+    paths:
+      - 'integrations/quickbi-platform/**'
+  pull_request:
+    paths:
+      - 'integrations/quickbi-platform/**'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/quickbi-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check src/server.mjs && node --check src/query.mjs && node --check src/db.mjs && node --check public/app.js
+      - run: npm test
