@@ -1,6 +1,6 @@
 import { id, audit } from './db.mjs';
 import { InputError, getDataset } from './query.mjs';
-import { validateQueryPolicy } from './dataset-policy.mjs';
+import { validateQueryPolicy, datasetPolicyRevision } from './dataset-policy.mjs';
 import { connectionFor, withConnection, identifier, bindPlaceholder, sourceSchema } from './connectors.mjs';
 
 const allowedOps={eq:'=',ne:'<>',gte:'>=',lte:'<=',gt:'>',lt:'<'};
@@ -64,9 +64,17 @@ export async function executeExternalQuery(db,ctx,spec,options={}){
 }
 export async function executeAnyQuery(db,ctx,spec,options={}){
   const dataset=getDataset(db,ctx,spec?.datasetId);
+  const startRevision=datasetPolicyRevision(db,ctx,dataset.id);
   const source=db.prepare('SELECT kind FROM datasources WHERE id=? AND tenant_id=?').get(dataset.datasource_id,ctx.tenantId);
+  let result;
   if(source?.kind==='demo-sqlite'){
-    const {executeQuery}=await import('./query.mjs');return executeQuery(db,ctx,spec,options);
-  }
-  return executeExternalQuery(db,ctx,spec,options);
+    const {executeQuery}=await import('./query.mjs');result=executeQuery(db,ctx,spec,options);
+  }else result=await executeExternalQuery(db,ctx,spec,options);
+  // An in-flight DB request must not return results if its user role or data
+  // policy was revoked while the read was pending.
+  const active=db.prepare('SELECT role FROM memberships WHERE tenant_id=? AND user_id=?').get(ctx.tenantId,ctx.userId);
+  if(!active || active.role!==ctx.role)throw new InputError('查询期间身份权限发生变化，请重新提交',403);
+  if(datasetPolicyRevision(db,ctx,dataset.id)!==startRevision)throw new InputError('查询期间数据策略发生变化，请重新提交',409);
+  validateQueryPolicy(db,ctx,dataset,{dimensions:spec.dimensions??[],metrics:spec.metrics??[],filters:spec.filters??[]});
+  return result;
 }
