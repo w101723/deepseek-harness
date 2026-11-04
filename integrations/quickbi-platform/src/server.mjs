@@ -9,6 +9,7 @@ import { SUPPORTED_SOURCES, validateConnection, encryptCredentials, sourcePublic
 import { createExternalModel, executeAnyQuery } from './query-external.mjs';
 import { createAgentBridge, isLoopback } from './agent-bridge.mjs';
 import { runNativeBiAgent } from './native-agent.mjs';
+import { exportArtifact } from './artifact-export.mjs';
 import { readableCatalog, listDatasetPolicies, setDatasetPolicy } from './dataset-policy.mjs';
 import { createSession, listSessions, listMessages, analysisSession, askSession, createArtifact, artifacts, artifact, updateArtifact, listTopics, createTopic, publishTopic, listCanvases, getCanvas, createCanvas, updateCanvas } from './analysis.mjs';
 
@@ -247,6 +248,13 @@ export function createApp(opts={}){
       if(path==='/api/ai/artifacts'&&method==='POST'){
         requireRole(ctx,'editor');const b=await bodyJson(req);
         return json(res,createArtifact(db,ctx,b.sessionId,b),201);
+      }
+      const exportRoute=/^\/api\/ai\/artifacts\/([^/]+)\/export$/.exec(path);
+      if(exportRoute&&method==='GET'){
+        const item=artifact(db,ctx,exportRoute[1]); // permission + policy revision checked before any bytes are sent
+        const output=exportArtifact(item,u.searchParams.get('format')||'csv');
+        res.writeHead(200,{'Content-Type':output.type,'Content-Disposition':`attachment; filename="${output.name}"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+        res.end(output.text);audit(db,ctx,'analysis.artifact.export','artifact',item.id);return;
       }
       a=/^\/api\/ai\/artifacts\/([^/]+)$/.exec(path);
       if(a&&method==='GET')return json(res,{item:artifact(db,ctx,a[1])});

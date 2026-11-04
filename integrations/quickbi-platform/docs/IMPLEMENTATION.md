@@ -2,7 +2,7 @@
 
 ## Verified locally (Node 22.16, `npm test`)
 
-- 25 automated test cases pass (including new role-scoped access policy tests); includes original demo login/workspace/query/dashboard safety tests.
+- 27 automated test cases pass (including role-scoped access and safe export tests); includes original demo login/workspace/query/dashboard safety tests.
 - New API integration tests use **injected fake PostgreSQL/MySQL drivers**, covering connection test, metadata, preview, dataset, SQL binding, session continuity, topic publishing, canvas version conflict, cross-tenant rejection and credential encryption.
 - Old `datasources` schema migrates to the expanded multi-engine table, retaining existing datasets.
 - Browser application includes actual source connection form, dataset table selection, AIPro session, saved artifacts, topics and canvas layout view.
@@ -46,3 +46,10 @@ Tenant isolation for external sources is metadata/source-ownership isolation. Un
 - Data policy editor on datasets; optional `npm run test:live` connector smoke runner uses *real* provided DB credentials and hides them from logs.
 - Local 25/25 tests pass, including policy propagation, viewer grant/revoke, query injection attempts, stale artifact invalidation and creator role downgrade.
 - No real database or DeepSeek model endpoint is available inside these tests. Live smoke and native model end-to-end remain **unverified**.
+
+## Batch 05: reports and portable exports
+
+- Saved analysis artifacts now support `report` as well as chart/table works.
+- Authorized `GET /api/ai/artifacts/:id/export?format=csv|md|json` produces attachments from previously verified query results, not a fresh SQL query.
+- CSV formula-prefix neutralization, JSON snapshot, readable Markdown report and policy-aware download authorization implemented.
+- Browser UI exposes type selection and download actions; 27/27 local tests pass. **Live database/model E2E remains outstanding**.

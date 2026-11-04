@@ -37,6 +37,7 @@ Preserve `DATASOURCE_MASTER_KEY` safely, otherwise stored external credentials c
 - AIPro sessions, persisted multi-turn history and query evidence; optional native Harness `bi_catalog` / `bi_query` tool path (requires SDK/model runtime validation) with an ephemeral scoped bearer and server-enforced query limits. Previous JSON-planner and deterministic fallback remain available, explicitly marked as previews.
 - AIPro topics (draft + publish), analysis artifacts (rename/chart-style edits with version checks), versioned canvas layout with drag/resize/zoom and vertical scrolling. This is not the full multi-user infinite canvas/collaboration experience.
 - Admin-managed role dataset policies: dimension and metric allowlists, mandatory bound row predicates, history invalidation on policy changes, and a policy editor.
+- Saved chart and report artifacts can be downloaded as CSV, Markdown or JSON (no extra model call on export); downloads check current authorization and dataset policy revision.
 - Existing dashboard editor remains a Phase 2 prototype, not a finished deliverable.
 
 ## Open API routes
@@ -110,3 +111,7 @@ npm run test:live
 ```
 
 Without real DB credentials this command intentionally fails. It verifies connect, Schema discovery and bounded preview; this is not a substitute for TLS/permissions/throughput/security acceptance.
+
+## Exporting AIPro works
+
+Save an AIPro analysis as **图表作品** or **分析报告**, open the saved work and choose CSV, Markdown or JSON. The API is `GET /api/ai/artifacts/:id/export?format=csv|md|json`. Exports are generated only from persisted, already-authorized evidence; CSV cells with spreadsheet-formula prefixes are neutralized, responses are attachments with `no-store`, and the authorization check runs before streaming any bytes. Any dataset-policy revision or creator-role change invalidates old report downloads.

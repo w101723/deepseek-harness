@@ -103,7 +103,7 @@ export async function askSession(db,ctx,sessionId,question,options={}){
 export function createArtifact(db,ctx,sessionId,{name,kind='chart',chart='bar'}={}){
   const session=analysisSession(db,ctx,sessionId);
   if(typeof name!=='string'||name.trim().length<1||name.length>80)throw new InputError('作品名称长度无效');
-  if(!['chart','table','canvas'].includes(kind)||!['bar','line','table'].includes(chart))throw new InputError('作品类型无效');
+  if(!['chart','table','canvas','report'].includes(kind)||!['bar','line','table'].includes(chart))throw new InputError('作品类型无效');
   const last=db.prepare("SELECT spec_json,result_json,text,policy_revision,policy_role FROM analysis_messages WHERE session_id=? AND tenant_id=? AND role='assistant' ORDER BY rowid DESC LIMIT 1").get(sessionId,ctx.tenantId);
   if(!last||!last.result_json)throw new InputError('请先完成一次分析',409);
   if(last.policy_revision!==datasetPolicyRevision(db,ctx,session.dataset_id)||last.policy_role!==ctx.role)throw new InputError('角色或数据权限已变更，请重新分析后创建作品',409);

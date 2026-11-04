@@ -1,9 +1,9 @@
 {
   "name": "@w101723/quickbi-platform-foundation",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "AIPro native Harness tools with tenant/role-scoped SQL, persisted artifacts and dataset access policies",
+  "description": "Phase 1 AIPro data policies, guarded query tools, saved reports and safe exports",
   "engines": {
     "node": ">=22.14"
   },
