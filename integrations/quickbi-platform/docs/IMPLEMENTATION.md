@@ -53,3 +53,10 @@ Tenant isolation for external sources is metadata/source-ownership isolation. Un
 - Authorized `GET /api/ai/artifacts/:id/export?format=csv|md|json` produces attachments from previously verified query results, not a fresh SQL query.
 - CSV formula-prefix neutralization, JSON snapshot, readable Markdown report and policy-aware download authorization implemented.
 - Browser UI exposes type selection and download actions; 27/27 local tests pass. **Live database/model E2E remains outstanding**.
+
+## Batch 06 · AIPro scheduled analysis
+
+- Added `src/scheduler.mjs` with persistent recurring read-only queries, UTC-based scheduling, limited history, manual execution, optimistic updates, task lease and current-role/policy revalidation.
+- Added Web UI for creating, manually running, pausing, resuming and inspecting recurring tasks.
+- Added automated tests: scheduled query contracts, policy invalidation, concurrency lease and restart recovery.
+- **No ETL/data movement**; no external delivery, distributed scheduler, retry guarantees or live DB smoke proof.
