@@ -11,7 +11,7 @@ All ETL/data cleaning/transformation/synchronization/extraction acceleration; tr
 
 ## Remaining Phase 1 milestones
 1. Real source integration tests and credential/TLS deployment checks.
-2. Business metric governance and row/column-scoped ACL.
+2. Business metric governance; role-scoped row/column allowlists delivered as a developer preview, but user/group ACL and production authorization still pending.
 3. Harness native BI tool: plugin/HTTP-capability code and fake-Agent tests added; verify official SDK + model live execution and iterative analysis quality.
 4. Canvas interactivity, saved analysis artifact editing, scheduled analysis.
 5. Actual enterprise data end-to-end acceptance with errors, security and resource limits.

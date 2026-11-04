@@ -2,7 +2,7 @@
 
 ## Verified locally (Node 22.16, `npm test`)
 
-- 18 automated test cases pass; includes original demo login/workspace/query/dashboard safety tests.
+- 25 automated test cases pass (including new role-scoped access policy tests); includes original demo login/workspace/query/dashboard safety tests.
 - New API integration tests use **injected fake PostgreSQL/MySQL drivers**, covering connection test, metadata, preview, dataset, SQL binding, session continuity, topic publishing, canvas version conflict, cross-tenant rejection and credential encryption.
 - Old `datasources` schema migrates to the expanded multi-engine table, retaining existing datasets.
 - Browser application includes actual source connection form, dataset table selection, AIPro session, saved artifacts, topics and canvas layout view.
@@ -17,14 +17,14 @@
 
 - **ETL removed entirely** (no data movement, transformations, sync or materialization).
 - External connection live smoke against real MySQL, PostgreSQL, TiDB, StarRocks; TLS validation; TLS defaults need deployment hardening.
-- Multi-user asset-level ACL and row/column policies, SSO, secure production infrastructure and database connection pooling.
+- Per-user/group resource ACL, inherited policies, SSO, secure production infrastructure and database connection pooling. **Role-scoped dataset dimension/metric allowlists and mandatory row predicates are now implemented and tested**, but not production-hardened.
 - Native Harness `bi_catalog` and `bi_query` Cordis tool plugin + scoped loopback bridge added and locally tested with an injected fake Agent. Actual SDK/plugin/model end-to-end integration has **not** been verified; full Skill/MCP/complex multi-agent planning remains.
 - Basic canvas drag/resize/zoom + editable artifact metadata added; multi-user collaboration, full infinite canvas UX, sophisticated charts, enterprise gallery and report generation remain.
 - Phase 2 full dashboard designer: existing demonstration dashboard is not complete.
 
 ## Design note
 
-Tenant isolation for external sources is metadata/source-ownership isolation. Unlike the built-in demo SQL, an external table **does not automatically contain tenant_id**. For this reason, current external SQL is limited to editor/admin and any required row-level restrictions must be enforced via restricted database users/views until full dataset-policy implementation lands.
+Tenant isolation for external sources is metadata/source-ownership isolation. Unlike the built-in demo SQL, an external table **does not automatically contain tenant_id**. External SQL is denied to viewers by default and can be enabled with an explicit per-role dataset policy. These policies enforce parameterized mandatory row predicates, and dimension/metric allowlists; the configured external database account must still be read-only. See [DATA_POLICIES.md](DATA_POLICIES.md).
 
 ## Batch 03 native-tool development
 
@@ -36,3 +36,13 @@ Tenant isolation for external sources is metadata/source-ownership isolation. Un
 - Added artifact name/chart edit PATCH endpoint with optimistic versioning and a drag/resize/zoom canvas UI, with server-side layout bounds.
 - New negative tests check revoked/forged tokens, per-turn query budget, dataset impersonation, evidence immutability and canvas validation.
 - **CI and local test cases are not equivalent to real model or database integration tests.**
+
+## Batch 04: role-scoped dataset access + history safety
+
+- Role-level dataset policies (`viewer`/`editor`/`admin`) and admin-only GET/PATCH endpoints, including optimistic versioning and committed audit+revision updates.
+- Mandatory AND-combined SQL row predicates and dimension/metric allowlists apply to demo SQL, external adapters, and native Harness bi_catalog/bi_query calls.
+- Viewer external database access is denied until granted. Viewer metadata/source lists are filtered. Query history is user-scoped.
+- Historical AIPro query evidence and artifacts are hidden when dataset policy revision or creator's role differs from when the results were generated.
+- Data policy editor on datasets; optional `npm run test:live` connector smoke runner uses *real* provided DB credentials and hides them from logs.
+- Local 25/25 tests pass, including policy propagation, viewer grant/revoke, query injection attempts, stale artifact invalidation and creator role downgrade.
+- No real database or DeepSeek model endpoint is available inside these tests. Live smoke and native model end-to-end remain **unverified**.

@@ -9,6 +9,7 @@ import { SUPPORTED_SOURCES, validateConnection, encryptCredentials, sourcePublic
 import { createExternalModel, executeAnyQuery } from './query-external.mjs';
 import { createAgentBridge, isLoopback } from './agent-bridge.mjs';
 import { runNativeBiAgent } from './native-agent.mjs';
+import { readableCatalog, listDatasetPolicies, setDatasetPolicy } from './dataset-policy.mjs';
 import { createSession, listSessions, listMessages, analysisSession, askSession, createArtifact, artifacts, artifact, updateArtifact, listTopics, createTopic, publishTopic, listCanvases, getCanvas, createCanvas, updateCanvas } from './analysis.mjs';
 
 const publicDir=join(dirname(fileURLToPath(import.meta.url)),'../public');
@@ -130,7 +131,11 @@ export function createApp(opts={}){
         }
       }
       if(path==='/api/datasources'){
-        if(method==='GET')return json(res,{items:list(db,'SELECT * FROM datasources WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId).map(sourcePublic)});
+        if(method==='GET'){
+          const all=list(db,'SELECT * FROM datasources WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId);
+          const permitted=ctx.role==='viewer'?new Set(list(db,'SELECT * FROM datasets WHERE tenant_id=?',ctx.tenantId).filter(d=>{try{readableCatalog(db,ctx,d);return true;}catch(e){if(e.status===403)return false;throw e;}}).map(d=>d.datasource_id)):null;
+          return json(res,{items:all.filter(ds=>!permitted||permitted.has(ds.id)).map(sourcePublic)});
+        }
         if(method==='POST'){
           requireRole(ctx,'editor');const b=await bodyJson(req);workspace(db,ctx,b.workspaceId);
           let sealed=null;
@@ -158,7 +163,7 @@ export function createApp(opts={}){
         return json(res,{columns:['order_date','region','category','channel','revenue','cost','quantity'],rows:list(db,'SELECT order_date,region,category,channel,revenue,cost,quantity FROM sales_demo WHERE tenant_id=? AND workspace_id=? LIMIT 15',ctx.tenantId,ds.workspace_id)});
       }
       if(path==='/api/datasets'){
-        if(method==='GET')return json(res,{items:list(db,'SELECT * FROM datasets WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId).map(x=>({...x,dimensions:JSON.parse(x.dimensions_json),metrics:JSON.parse(x.metrics_json)}))});
+        if(method==='GET')return json(res,{items:list(db,'SELECT * FROM datasets WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId).flatMap(x=>{try{const allowed=readableCatalog(db,ctx,x);const {dimensions_json,metrics_json,...publicDataset}=x;return [{...publicDataset,dimensions:allowed.dimensions,metrics:allowed.metrics}];}catch(e){if(e.status===403)return [];throw e;}})});
         if(method==='POST'){
           requireRole(ctx,'editor');const b=await bodyJson(req),ds=datasource(db,ctx,b.datasourceId);
           let dims,metrics,model=null;
@@ -175,13 +180,20 @@ export function createApp(opts={}){
           audit(db,ctx,'dataset.create','dataset',newId);return json(res,{id:newId,version:1},201);
         }
       }
+      m=/^\/api\/datasets\/([^/]+)\/policies$/.exec(path);
+      if(m){
+        const ds=getDataset(db,ctx,m[1]);
+        if(method==='GET')return json(res,{items:listDatasetPolicies(db,ctx,ds)});
+        if(method==='PATCH')return json(res,{item:setDatasetPolicy(db,ctx,ds,await bodyJson(req))});
+      }
       m=/^\/api\/datasets\/([^/]+)\/preview$/.exec(path);
       if(m&&method==='GET'){
-        const ds=getDataset(db,ctx,m[1]),dim=JSON.parse(ds.dimensions_json)[0],metric=JSON.parse(ds.metrics_json)[0];
+        const ds=getDataset(db,ctx,m[1]),allowed=readableCatalog(db,ctx,ds),dim=allowed.dimensions[0],metric=allowed.metrics[0];
+        if(!metric)fail(403,'该角色没有可查询的指标');
         return json(res,await executeAnyQuery(db,ctx,{datasetId:ds.id,dimensions:[dim],metrics:[metric],limit:20},connectorOptions));
       }
       if(path==='/api/query'&&method==='POST')return json(res,await executeAnyQuery(db,ctx,await bodyJson(req),connectorOptions));
-      if(path==='/api/query/history'&&method==='GET')return json(res,{items:list(db,'SELECT id,dataset_id,row_count,created_at FROM query_runs WHERE tenant_id=? ORDER BY created_at DESC LIMIT 50',ctx.tenantId)});
+      if(path==='/api/query/history'&&method==='GET')return json(res,{items:list(db,'SELECT id,dataset_id,row_count,created_at FROM query_runs WHERE tenant_id=? AND user_id=? ORDER BY created_at DESC LIMIT 50',ctx.tenantId,ctx.userId).filter(r=>{try{readableCatalog(db,ctx,getDataset(db,ctx,r.dataset_id));return true;}catch(e){if(e.status===403)return false;throw e;}})});
       if(path==='/api/dashboards'){
         if(method==='GET')return json(res,{items:list(db,'SELECT * FROM dashboards WHERE tenant_id=? ORDER BY updated_at DESC',ctx.tenantId).map(x=>({...x,widgets:JSON.parse(x.widgets_json)}))});
         if(method==='POST'){

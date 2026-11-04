@@ -65,7 +65,16 @@ export function openDatabase(path = ':memory:', { demoMode = false, bootstrapEma
     CREATE TABLE IF NOT EXISTS analysis_canvases(id TEXT PRIMARY KEY,tenant_id TEXT NOT NULL,workspace_id TEXT NOT NULL,user_id TEXT NOT NULL,session_id TEXT NOT NULL,name TEXT NOT NULL,layout_json TEXT NOT NULL DEFAULT '[]',version INTEGER NOT NULL DEFAULT 1,updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE INDEX IF NOT EXISTS idx_analysis_topics ON analysis_topics(tenant_id,workspace_id);
     CREATE INDEX IF NOT EXISTS idx_analysis_canvases ON analysis_canvases(tenant_id,user_id);
+    CREATE TABLE IF NOT EXISTS dataset_role_policies(tenant_id TEXT NOT NULL,dataset_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('viewer','editor','admin')),can_query INTEGER NOT NULL CHECK(can_query IN (0,1)),dimensions_json TEXT NOT NULL DEFAULT 'null',metrics_json TEXT NOT NULL DEFAULT 'null',row_filters_json TEXT NOT NULL DEFAULT '[]',version INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(tenant_id,dataset_id,role),FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE);
+    CREATE INDEX IF NOT EXISTS idx_dataset_policies_tenant ON dataset_role_policies(tenant_id,dataset_id);
+    CREATE TABLE IF NOT EXISTS dataset_policy_generations(tenant_id TEXT NOT NULL,dataset_id TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(tenant_id,dataset_id),FOREIGN KEY(dataset_id) REFERENCES datasets(id) ON DELETE CASCADE);
   `);
+  // Historical AI artifacts cannot become a side door around newly restricted policies.
+  for(const table of ['analysis_messages','analysis_artifacts']){
+    const columns=db.prepare(`PRAGMA table_info(${table})`).all();
+    if(!columns.some(c=>c.name==='policy_revision'))db.exec(`ALTER TABLE ${table} ADD COLUMN policy_revision INTEGER NOT NULL DEFAULT 0`);
+    if(!columns.some(c=>c.name==='policy_role'))db.exec(`ALTER TABLE ${table} ADD COLUMN policy_role TEXT NOT NULL DEFAULT 'admin'`);
+  }
   if (db.prepare('SELECT COUNT(*) AS n FROM tenants').get().n === 0) {
     if (!demoMode && !(bootstrapEmail && bootstrapPassword)) return db;
     if (!demoMode && bootstrapPassword.length < 12) throw new Error('BOOTSTRAP_PASSWORD must contain >=12 characters');

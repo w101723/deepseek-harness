@@ -2,19 +2,26 @@ import { id, audit } from './db.mjs';
 import { InputError, getDataset, suggestSpec } from './query.mjs';
 import { executeAnyQuery } from './query-external.mjs';
 import { planWithHarness, narrateWithHarness } from './harness.mjs';
+import { readableCatalog, datasetPolicyRevision } from './dataset-policy.mjs';
 
 export function analysisSession(db,ctx,sessionId){
   const row=db.prepare('SELECT * FROM analysis_sessions WHERE id=? AND tenant_id=? AND user_id=?').get(sessionId,ctx.tenantId,ctx.userId);
   if(!row)throw new InputError('分析会话不存在或没有权限',404);
+  readableCatalog(db,ctx,getDataset(db,ctx,row.dataset_id));
   return row;
 }
-export function listSessions(db,ctx){return db.prepare('SELECT id,title,dataset_id,workspace_id,created_at,updated_at FROM analysis_sessions WHERE tenant_id=? AND user_id=? ORDER BY updated_at DESC LIMIT 100').all(ctx.tenantId,ctx.userId);}
+export function listSessions(db,ctx){return db.prepare('SELECT id,title,dataset_id,workspace_id,created_at,updated_at FROM analysis_sessions WHERE tenant_id=? AND user_id=? ORDER BY updated_at DESC LIMIT 100').all(ctx.tenantId,ctx.userId).filter(x=>{try{readableCatalog(db,ctx,getDataset(db,ctx,x.dataset_id));return true;}catch(e){if(e.status===403)return false;throw e;}});}
 export function listMessages(db,ctx,sessionId){
-  analysisSession(db,ctx,sessionId);
-  return db.prepare('SELECT id,role,text,spec_json,result_json,created_at FROM analysis_messages WHERE session_id=? AND tenant_id=? ORDER BY rowid LIMIT 150').all(sessionId,ctx.tenantId).map(r=>({...r,spec:r.spec_json?JSON.parse(r.spec_json):null,result:r.result_json?JSON.parse(r.result_json):null,spec_json:undefined,result_json:undefined}));
+  const session=analysisSession(db,ctx,sessionId);
+  const revision=datasetPolicyRevision(db,ctx,session.dataset_id);
+  return db.prepare('SELECT id,role,text,spec_json,result_json,policy_revision,policy_role,created_at FROM analysis_messages WHERE session_id=? AND tenant_id=? ORDER BY rowid LIMIT 150').all(sessionId,ctx.tenantId).map(r=>{
+    const stale=r.role==='assistant'&&(r.policy_revision!==revision||r.policy_role!==ctx.role);
+    return {id:r.id,role:r.role,text:stale?'权限策略已变更，历史结果已隐藏；请重新分析。':r.text,spec:stale?null:r.spec_json?JSON.parse(r.spec_json):null,result:stale?null:r.result_json?JSON.parse(r.result_json):null,redacted:stale,created_at:r.created_at};
+  });
 }
 export function createSession(db,ctx,{datasetId,title='',topicId}={}){
   const ds=getDataset(db,ctx,datasetId);
+  readableCatalog(db,ctx,ds);
   if(typeof title!=='string'||title.trim().length>80)throw new InputError('会话标题过长');
   if(topicId){
     const topic=db.prepare('SELECT * FROM analysis_topics WHERE id=? AND tenant_id=? AND dataset_id=?').get(topicId,ctx.tenantId,ds.id);
@@ -28,17 +35,25 @@ export function createSession(db,ctx,{datasetId,title='',topicId}={}){
 }
 function fallbackPlan(db,ctx,question,session,lastSpec){
   const data=getDataset(db,ctx,session.dataset_id);
+  const allowed=readableCatalog(db,ctx,data);
+  if(!allowed.metrics.length)throw new InputError('当前角色没有可查询的指标',403);
   const model=db.prepare('SELECT definition_json FROM external_dataset_models WHERE dataset_id=?').get(data.id);
   if(model){
-    const d=JSON.parse(model.definition_json);
     const previous=lastSpec?.datasetId===data.id?lastSpec:null;
-    const dim=d.dimensions.find(x=>question.toLowerCase().includes(x.toLowerCase()));
-    const metric=Object.keys(d.metrics).find(x=>question.toLowerCase().includes(x.toLowerCase()));
-    return {datasetId:data.id,dimensions:dim?[dim]:previous?.dimensions??d.dimensions.slice(0,1),metrics:[metric||previous?.metrics?.[0]||Object.keys(d.metrics)[0]],limit:50};
+    const lowerQuestion=question.toLowerCase();
+    const dimension=allowed.dimensions.find(x=>lowerQuestion.includes(x.toLowerCase()));
+    const metric=allowed.metrics.find(x=>lowerQuestion.includes(x.toLowerCase()));
+    const previouslyAllowedDimensions=(previous?.dimensions??[]).filter(x=>allowed.dimensions.includes(x));
+    return {
+      datasetId:data.id,
+      dimensions:dimension?[dimension]:previouslyAllowedDimensions.length?previouslyAllowedDimensions.slice(0,1):allowed.dimensions.slice(0,1),
+      metrics:[metric || (allowed.metrics.includes(previous?.metrics?.[0]) ? previous.metrics[0] : allowed.metrics[0])],
+      limit:50,
+    };
   }
-  const suggested=suggestSpec(question,[data]);
+  const suggested=suggestSpec(question,[{...data, dimensions_json:JSON.stringify(allowed.dimensions),metrics_json:JSON.stringify(allowed.metrics)}]);
   if(lastSpec?.datasetId===data.id && /继续|同样|然后|再看|换成|上一/.test(question)){
-    return {...suggested,metrics:/(成本|销售|销量|数量|订单)/.test(question)?suggested.metrics:lastSpec.metrics,dimensions:/(地区|品类|渠道|日期|时间)/.test(question)?suggested.dimensions:lastSpec.dimensions};
+    return {...suggested,metrics:/(成本|销售|销量|数量|订单)/.test(question)?suggested.metrics:lastSpec.metrics?.filter(x=>allowed.metrics.includes(x))?.length?lastSpec.metrics.filter(x=>allowed.metrics.includes(x)):suggested.metrics,dimensions:/(地区|品类|渠道|日期|时间)/.test(question)?suggested.dimensions:lastSpec.dimensions?.filter(x=>allowed.dimensions.includes(x))??suggested.dimensions};
   }
   return suggested;
 }
@@ -47,8 +62,11 @@ export async function askSession(db,ctx,sessionId,question,options={}){
   if(typeof question!=='string'||question.trim().length<1||question.length>500)throw new InputError('分析问题须在 1–500 字之间');
   const messages=listMessages(db,ctx,sessionId),last=messages.filter(x=>x.role==='assistant').at(-1),lastSpec=last?.spec;
   const dataset=getDataset(db,ctx,session.dataset_id);
+  const initialRevision=datasetPolicyRevision(db,ctx,dataset.id);
   const external=db.prepare('SELECT definition_json FROM external_dataset_models WHERE dataset_id=?').get(dataset.id);
-  const catalog=external?JSON.parse(external.definition_json):{dimensions:JSON.parse(dataset.dimensions_json),metrics:Object.fromEntries(JSON.parse(dataset.metrics_json).map(m=>[m,{kind:'builtin'}]))};
+  const allowed=readableCatalog(db,ctx,dataset);
+  const rawCatalog=external?JSON.parse(external.definition_json):{dimensions:JSON.parse(dataset.dimensions_json),metrics:Object.fromEntries(JSON.parse(dataset.metrics_json).map(m=>[m,{kind:'builtin'}]))};
+  const catalog={dimensions:allowed.dimensions,metrics:Object.fromEntries(Object.entries(rawCatalog.metrics).filter(([m])=>allowed.metrics.includes(m)))};
   const theme=db.prepare('SELECT t.name,t.description FROM analysis_topics t JOIN analysis_session_topics st ON st.topic_id=t.id WHERE st.session_id=? AND t.tenant_id=?').get(sessionId,ctx.tenantId);
   if(theme)catalog.topic={name:theme.name,description:theme.description};
   let spec,mode='deterministic-preview',result,toolTrace=[],summary;
@@ -68,11 +86,14 @@ export async function askSession(db,ctx,sessionId,question,options={}){
   if(options.harnessEnabled && !options.planner && !options.runAgent){
     summary=await narrateWithHarness(question,result,{enabled:true,home:options.harnessHome})||summary;
   }
+  // A policy update while the model is reasoning invalidates this turn's evidence.
+  readableCatalog(db,ctx,dataset);
+  if(datasetPolicyRevision(db,ctx,dataset.id)!==initialRevision)throw new InputError('数据权限在分析期间发生变化，请重新查询',409);
   const userId=id(),assistantId=id();
   db.exec('BEGIN IMMEDIATE');
   try{
     db.prepare('INSERT INTO analysis_messages(id,session_id,tenant_id,role,text) VALUES (?,?,?,?,?)').run(userId,session.id,ctx.tenantId,'user',question.trim());
-    db.prepare('INSERT INTO analysis_messages(id,session_id,tenant_id,role,text,spec_json,result_json) VALUES (?,?,?,?,?,?,?)').run(assistantId,session.id,ctx.tenantId,'assistant',summary,JSON.stringify(spec),JSON.stringify({...result,...(toolTrace.length?{toolTrace}:{})}));
+    db.prepare('INSERT INTO analysis_messages(id,session_id,tenant_id,role,text,spec_json,result_json,policy_revision,policy_role) VALUES (?,?,?,?,?,?,?,?,?)').run(assistantId,session.id,ctx.tenantId,'assistant',summary,JSON.stringify(spec),JSON.stringify({...result,...(toolTrace.length?{toolTrace}:{})}),initialRevision,ctx.role);
     db.prepare('UPDATE analysis_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=?').run(session.id,ctx.tenantId);
     db.exec('COMMIT');
   }catch(e){db.exec('ROLLBACK');throw e;}
@@ -83,20 +104,27 @@ export function createArtifact(db,ctx,sessionId,{name,kind='chart',chart='bar'}=
   const session=analysisSession(db,ctx,sessionId);
   if(typeof name!=='string'||name.trim().length<1||name.length>80)throw new InputError('作品名称长度无效');
   if(!['chart','table','canvas'].includes(kind)||!['bar','line','table'].includes(chart))throw new InputError('作品类型无效');
-  const last=db.prepare("SELECT spec_json,result_json,text FROM analysis_messages WHERE session_id=? AND tenant_id=? AND role='assistant' ORDER BY rowid DESC LIMIT 1").get(sessionId,ctx.tenantId);
+  const last=db.prepare("SELECT spec_json,result_json,text,policy_revision,policy_role FROM analysis_messages WHERE session_id=? AND tenant_id=? AND role='assistant' ORDER BY rowid DESC LIMIT 1").get(sessionId,ctx.tenantId);
   if(!last||!last.result_json)throw new InputError('请先完成一次分析',409);
+  if(last.policy_revision!==datasetPolicyRevision(db,ctx,session.dataset_id)||last.policy_role!==ctx.role)throw new InputError('角色或数据权限已变更，请重新分析后创建作品',409);
   const content={kind,chart,spec:JSON.parse(last.spec_json),result:JSON.parse(last.result_json),summary:last.text};
   const artifactId=id();
-  db.prepare('INSERT INTO analysis_artifacts(id,tenant_id,workspace_id,session_id,name,content_json) VALUES (?,?,?,?,?,?)').run(artifactId,ctx.tenantId,session.workspace_id,sessionId,name.trim(),JSON.stringify(content));
+  db.prepare('INSERT INTO analysis_artifacts(id,tenant_id,workspace_id,session_id,name,content_json,policy_revision,policy_role) VALUES (?,?,?,?,?,?,?,?)').run(artifactId,ctx.tenantId,session.workspace_id,sessionId,name.trim(),JSON.stringify(content),last.policy_revision,ctx.role);
   audit(db,ctx,'analysis.artifact.create','artifact',artifactId);
   return {id:artifactId,version:1};
 }
 export function artifacts(db,ctx){
-  return db.prepare('SELECT a.id,a.name,a.version,a.workspace_id,a.session_id,a.updated_at FROM analysis_artifacts a JOIN analysis_sessions s ON s.id=a.session_id WHERE a.tenant_id=? AND s.user_id=? ORDER BY a.updated_at DESC LIMIT 100').all(ctx.tenantId,ctx.userId);
+  return db.prepare('SELECT a.id,a.name,a.version,a.workspace_id,a.session_id,a.updated_at,a.policy_revision,a.policy_role,s.dataset_id FROM analysis_artifacts a JOIN analysis_sessions s ON s.id=a.session_id WHERE a.tenant_id=? AND s.user_id=? ORDER BY a.updated_at DESC LIMIT 100').all(ctx.tenantId,ctx.userId).flatMap(a=>{
+    try{readableCatalog(db,ctx,getDataset(db,ctx,a.dataset_id));}catch(e){if(e.status===403)return [];throw e;}
+    if(a.policy_revision!==datasetPolicyRevision(db,ctx,a.dataset_id)||a.policy_role!==ctx.role)return [];
+    const {policy_revision,policy_role,dataset_id,...row}=a;return [row];
+  });
 }
 export function artifact(db,ctx,id){
   const row=db.prepare('SELECT a.* FROM analysis_artifacts a JOIN analysis_sessions s ON s.id=a.session_id WHERE a.id=? AND a.tenant_id=? AND s.user_id=?').get(id,ctx.tenantId,ctx.userId);
   if(!row)throw new InputError('作品不存在或没有权限',404);
+  const session=analysisSession(db,ctx,row.session_id);
+  if(row.policy_revision!==datasetPolicyRevision(db,ctx,session.dataset_id)||row.policy_role!==ctx.role)throw new InputError('角色或数据策略已更新，历史作品不可直接查看',409);
   return {id:row.id,name:row.name,sessionId:row.session_id,version:row.version,content:JSON.parse(row.content_json)};
 }
 

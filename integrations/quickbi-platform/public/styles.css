@@ -20,3 +20,7 @@
 .canvas-resize:after{content:'◢';position:absolute;right:3px;bottom:0;color:#7388a4;font-size:15px}
 .canvas-empty{position:absolute;top:18px;left:18px;color:#62758c}
 @media(max-width:960px){.canvas-layout{grid-template-columns:1fr}}
+/* Phase 1: role-specific data policies */
+.policy-fields{display:flex;flex-wrap:wrap;gap:9px;margin:9px 0 18px}
+.policy-choice{display:flex!important;align-items:center;gap:6px;padding:6px 9px;border:1px solid #dde6f0;border-radius:8px;background:#f9fbfd;font-size:12px!important;font-weight:500!important;cursor:pointer}
+.policy-choice input{width:auto!important;margin:0;accent-color:#137f85}

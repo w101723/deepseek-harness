@@ -1,4 +1,5 @@
 import { id, audit } from './db.mjs';
+import { validateQueryPolicy } from './dataset-policy.mjs';
 
 const fields = new Set(['region','category','channel','order_date']);
 const metrics = Object.freeze({revenue:'ROUND(SUM(revenue),2)',cost:'ROUND(SUM(cost),2)',quantity:'SUM(quantity)',orders:'COUNT(*)'});
@@ -19,9 +20,10 @@ export function executeQuery(db,ctx,spec,{record=true}={}) {
   if(!Array.isArray(dimensions)||dimensions.length>2||dimensions.some(x=>!fields.has(x)||!enabledDimensions.includes(x))||new Set(dimensions).size!==dimensions.length) throw new InputError('不支持的维度');
   if(!Array.isArray(measures)||measures.length<1||measures.length>4||measures.some(x=>!Object.hasOwn(metrics,x)||!enabledMetrics.includes(x))||new Set(measures).size!==measures.length) throw new InputError('不支持的指标');
   if(!Array.isArray(filters)||filters.length>8) throw new InputError('过滤条件数量不合法');
+  const policyFilters=validateQueryPolicy(db,ctx,data,{dimensions,metrics:measures,filters});
   const args=[ctx.tenantId,data.workspace_id];
   const where=['tenant_id=?','workspace_id=?'];
-  for(const f of filters){
+  for(const f of [...filters,...policyFilters]){
     if(!f || !fields.has(f.field) || !enabledDimensions.includes(f.field) || !operators.has(f.op)) throw new InputError('不支持的过滤条件');
     if(f.op==='in'){
       if(!Array.isArray(f.value)||!f.value.length||f.value.length>20||f.value.some(v=>typeof v!=='string'||v.length>80)) throw new InputError('IN 参数无效');

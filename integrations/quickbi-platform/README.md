@@ -28,7 +28,7 @@ npm start
 
 Preserve `DATASOURCE_MASTER_KEY` safely, otherwise stored external credentials cannot be decrypted. Node imports `pg` for PostgreSQL and `mysql2` for MySQL/TiDB/StarRocks. Drivers are optional to allow a local demo when offline; ensure the relevant driver was installed before connecting a real source.
 
-## Phase 1 capabilities implemented
+## Phase 1 capabilities implemented (developer preview)
 
 - Account sign-in, tenant-scoped workspaces, admin/editor/viewer basic policy, HTTP-only session cookie, CSRF and audit trail.
 - PostgreSQL and MySQL protocol adapters, including TiDB and StarRocks through MySQL-compatible protocol (server compatibility requires live verification).
@@ -36,6 +36,7 @@ Preserve `DATASOURCE_MASTER_KEY` safely, otherwise stored external credentials c
 - Dataset creation from discovered tables; dimensions and numeric `SUM` / `COUNT` metrics; one shared typed `QuerySpec` compiler for demo or real connections. Parameters are bound; no arbitrary SQL is accepted through the API.
 - AIPro sessions, persisted multi-turn history and query evidence; optional native Harness `bi_catalog` / `bi_query` tool path (requires SDK/model runtime validation) with an ephemeral scoped bearer and server-enforced query limits. Previous JSON-planner and deterministic fallback remain available, explicitly marked as previews.
 - AIPro topics (draft + publish), analysis artifacts (rename/chart-style edits with version checks), versioned canvas layout with drag/resize/zoom and vertical scrolling. This is not the full multi-user infinite canvas/collaboration experience.
+- Admin-managed role dataset policies: dimension and metric allowlists, mandatory bound row predicates, history invalidation on policy changes, and a policy editor.
 - Existing dashboard editor remains a Phase 2 prototype, not a finished deliverable.
 
 ## Open API routes
@@ -60,7 +61,7 @@ New:
 | GET/POST | `/api/ai/canvases` | List/create persistent analysis canvas |
 | GET/PATCH | `/api/ai/canvases/:id` | Read/edit with version conflict checking |
 
-Non-GET JSON APIs require the CSRF token from `/api/me`. IDs are checked against the authenticated tenant and, for AIPro, creator user. **External DB access currently requires editor or admin, not viewer**: full dataset/column/row ACL is still pending.
+Non-GET JSON APIs require the CSRF token from `/api/me`. IDs are checked against the authenticated tenant and, for AIPro, creator user. **External DB access currently requires editor or admin, not viewer**: role-scoped dataset/row/column enforcement now exists but per-user/group ACL and production governance remain pending.
 
 ## Safety and outstanding work
 
@@ -96,3 +97,16 @@ wall-clock deadline; multi-tenant worker isolation and comprehensive tool
 restriction still require integration testing. No actual production DB or
 DeepSeek API connection was available in the automated tests. SDK execution is
 not production hardened. Do not expose this preview on a public network.
+
+## Role-level dataset policy and live smoke
+
+The administrator can use **数据权限** on a dataset to grant a viewer access to a real source, restrict fields/metrics and enforce AND-combined row filters. The policy is validated and bound to every SQL request (including model tools); an authorization change hides old AI evidence. See [docs/DATA_POLICIES.md](docs/DATA_POLICIES.md).
+
+To exercise **real** source drivers rather than test fakes, set the encryption key and exact allowed hostnames, then run the opt-in smoke script with an explicit JSON array of read-only DB configs. Do not put passwords in shell history or commit credentials; use a protected environment/secrets provider.
+
+```bash
+# Provide QUICKBI_SMOKE_SOURCES through your environment or secret manager
+npm run test:live
+```
+
+Without real DB credentials this command intentionally fails. It verifies connect, Schema discovery and bounded preview; this is not a substitute for TLS/permissions/throughput/security acceptance.

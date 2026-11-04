@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { InputError, getDataset } from './query.mjs';
 import { executeAnyQuery } from './query-external.mjs';
 import { audit } from './db.mjs';
+import { readableCatalog } from './dataset-policy.mjs';
 
 const digest = token => createHash('sha256').update(token).digest('hex');
 
@@ -37,15 +38,19 @@ export function createAgentBridge(db, { drivers, lifetimeMs = 120_000 } = {}) {
     if (!scope || Date.now() >= scope.deadline) throw new InputError('无效或已过期的 Agent 能力令牌', 401);
     if (!request || typeof request !== 'object' || Array.isArray(request)) throw new InputError('工具请求无效');
     const { ctx, datasetId } = scope;
-    const dataset = getDataset(db, ctx, datasetId);
+    // Permission revocation must take effect even for an already-open model turn.
+    const active=db.prepare('SELECT role FROM memberships WHERE tenant_id=? AND user_id=?').get(ctx.tenantId,ctx.userId);
+    if(!active)throw new InputError('当前授权已被撤销',403);
+    const currentCtx={...ctx,role:active.role};
+    const dataset = getDataset(db, currentCtx, datasetId);
     if (request.action === 'catalog') {
       if (++scope.catalogs > 5) throw new InputError('本轮元数据访问次数已达到限制', 429);
       const external = db.prepare('SELECT definition_json FROM external_dataset_models WHERE dataset_id=?').get(datasetId);
-      if (external && ctx.role === 'viewer') throw new InputError('该角色尚未获得外部数据权限', 403);
+      const allowed=readableCatalog(db,currentCtx,dataset);
       const model = external
         ? JSON.parse(external.definition_json)
         : { dimensions: JSON.parse(dataset.dimensions_json), metrics: Object.fromEntries(JSON.parse(dataset.metrics_json).map(m => [m, { kind: 'builtin' }])) };
-      const result = { datasetId, datasetName: dataset.name, dimensions: model.dimensions, metrics: model.metrics, queryLimit: 30 };
+      const result = { datasetId, datasetName: dataset.name, dimensions: allowed.dimensions, metrics: Object.fromEntries(Object.entries(model.metrics).filter(([k])=>allowed.metrics.includes(k))), queryLimit: 30 };
       scope.trace.push({ action: 'catalog', datasetId });
       audit(db, ctx, 'agent.catalog', 'dataset', datasetId);
       return result;
@@ -62,7 +67,7 @@ export function createAgentBridge(db, { drivers, lifetimeMs = 120_000 } = {}) {
         filters: raw.filters ?? [],
         limit: Number.isInteger(raw.limit) ? Math.min(raw.limit, 30) : 30,
       };
-      const result = await executeAnyQuery(db, ctx, spec, { drivers });
+      const result = await executeAnyQuery(db, currentCtx, spec, { drivers });
       scope.last = { spec, result };
       scope.trace.push({ action: 'query', queryId: result.queryId, datasetId, rowCount: result.count, spec });
       audit(db, ctx, 'agent.query', 'dataset', datasetId);

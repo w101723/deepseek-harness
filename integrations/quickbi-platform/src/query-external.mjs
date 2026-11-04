@@ -1,5 +1,6 @@
 import { id, audit } from './db.mjs';
 import { InputError, getDataset } from './query.mjs';
+import { validateQueryPolicy } from './dataset-policy.mjs';
 import { connectionFor, withConnection, identifier, bindPlaceholder, sourceSchema } from './connectors.mjs';
 
 const allowedOps={eq:'=',ne:'<>',gte:'>=',lte:'<=',gt:'>',lt:'<'};
@@ -30,8 +31,9 @@ export function compileExternalQuery(db,ctx,spec){
   if(!Array.isArray(dims)||dims.length>3||new Set(dims).size!==dims.length||dims.some(d=>!model.dimensions.includes(d)))throw new InputError('不允许的维度');
   if(!Array.isArray(metrics)||metrics.length<1||metrics.length>4||new Set(metrics).size!==metrics.length||metrics.some(m=>!Object.hasOwn(model.metrics,m)))throw new InputError('不允许的指标');
   if(!Array.isArray(filters)||filters.length>8)throw new InputError('不允许的过滤条件');
+  const policyFilters=validateQueryPolicy(db,ctx,dataset,{dimensions:dims,metrics,filters});
   const q=n=>identifier(n,source.kind), params=[],where=[];
-  for(const f of filters){
+  for(const f of [...filters,...policyFilters]){
     if(!f||!model.dimensions.includes(f.field)||!Object.hasOwn(allowedOps,f.op))throw new InputError('不允许的过滤字段/操作');
     if(!['string','number'].includes(typeof f.value)||String(f.value).length>200)throw new InputError('过滤值无效');
     params.push(f.value);where.push(`${q(f.field)} ${allowedOps[f.op]} ${bindPlaceholder(source.kind,params.length)}`);
@@ -49,7 +51,6 @@ export function compileExternalQuery(db,ctx,spec){
   return {source,dataset,sql,params:[...params,limit],dimensions:dims,metrics,limit};
 }
 export async function executeExternalQuery(db,ctx,spec,options={}){
-  if(ctx.role==='viewer')throw new InputError('当前缺少外部数据集的精细访问授权，viewer 不允许查询',403);
   const compiled=compileExternalQuery(db,ctx,spec);
   const cfg=connectionFor(compiled.source);
   const rows=await withConnection(cfg,query=>query(compiled.sql,compiled.params),options);

@@ -1,16 +1,17 @@
 {
   "name": "@w101723/quickbi-platform-foundation",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Phase 1 AIPro native Harness tools, guarded live SQL connectors, persisted analysis",
+  "description": "AIPro native Harness tools with tenant/role-scoped SQL, persisted artifacts and dataset access policies",
   "engines": {
     "node": ">=22.14"
   },
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "DEMO_MODE=1 node src/server.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:live": "node scripts/live-smoke.mjs"
   },
   "optionalDependencies": {
     "@deepseek-ai/dsh-sdk-client": "0.2.2-alpha.3",
