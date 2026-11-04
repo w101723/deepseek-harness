@@ -34,8 +34,8 @@ Preserve `DATASOURCE_MASTER_KEY` safely, otherwise stored external credentials c
 - PostgreSQL and MySQL protocol adapters, including TiDB and StarRocks through MySQL-compatible protocol (server compatibility requires live verification).
 - Encryption-at-rest for DB credentials (AES-256-GCM), exact hostname allowlist, validation of DB/table/column identifiers, backend connection test, Schema and column discovery, limited preview.
 - Dataset creation from discovered tables; dimensions and numeric `SUM` / `COUNT` metrics; one shared typed `QuerySpec` compiler for demo or real connections. Parameters are bound; no arbitrary SQL is accepted through the API.
-- AIPro session creation, persisted multi-turn history, query evidence, optional Harness-driven JSON query planning and narration (model/SDK must be configured); deterministic fallback explicitly labelled as a preview.
-- AIPro topics (draft + publish), analysis artifacts and versioned canvas layout. Canvas UI supports adding and removing saved analysis artifacts; full interactive/infinite canvas experience is not yet delivered.
+- AIPro sessions, persisted multi-turn history and query evidence; optional native Harness `bi_catalog` / `bi_query` tool path (requires SDK/model runtime validation) with an ephemeral scoped bearer and server-enforced query limits. Previous JSON-planner and deterministic fallback remain available, explicitly marked as previews.
+- AIPro topics (draft + publish), analysis artifacts (rename/chart-style edits with version checks), versioned canvas layout with drag/resize/zoom and vertical scrolling. This is not the full multi-user infinite canvas/collaboration experience.
 - Existing dashboard editor remains a Phase 2 prototype, not a finished deliverable.
 
 ## Open API routes
@@ -56,7 +56,7 @@ New:
 | GET/POST | `/api/ai/topics` | List or create topic draft |
 | POST | `/api/ai/topics/:id/publish` | Publish with optimistic version check |
 | GET/POST | `/api/ai/artifacts` | List/create analysis artwork from the last successful turn |
-| GET | `/api/ai/artifacts/:id` | Retrieve saved artwork and query evidence |
+| GET/PATCH | `/api/ai/artifacts/:id` | Retrieve artwork or change its name/chart style (query evidence cannot be edited) |
 | GET/POST | `/api/ai/canvases` | List/create persistent analysis canvas |
 | GET/PATCH | `/api/ai/canvases/:id` | Read/edit with version conflict checking |
 
@@ -64,6 +64,35 @@ Non-GET JSON APIs require the CSRF token from `/api/me`. IDs are checked against
 
 ## Safety and outstanding work
 
-This is an engineering preview, **not production ready**. External connectors need actual database integration tests, TLS/cert testing, network protections and per-tenant query quotas. The external read-only account is essential; connection test alone cannot enforce read-only privileges. AIPro Harness SDK integration is optional; native model-side `bi_query` plugin/tool, richer agent plans, full canvas controls and business knowledge approval workflow remain. No license to copy proprietary Quick BI UI assets or internal code is implied.
+This is an engineering preview, **not production ready**. External connectors need actual database integration tests, TLS/cert testing, network protections and per-tenant query quotas. The external read-only account is essential; connection test alone cannot enforce read-only privileges. AIPro native Harness tool integration is implemented but has not been validated against a configured live DeepSeek model/runtime. Richer multi-agent plans, advanced interactive charting, shared canvas collaboration and business knowledge approval workflow remain. No license to copy proprietary Quick BI UI assets or internal code is implied.
 
 For the current two-phase plan see [docs/PHASE_SCOPE.md](docs/PHASE_SCOPE.md). For exact status see [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
+
+## Native Harness BI Tool integration (experimental)
+
+By default, no model is invoked. To enable real native tool calls, install compatible
+`@deepseek-ai/dsh-sdk-client` and `@deepseek-ai/dsh-tools` packages and configure
+`DEEPSEEK_API_KEY` for the selected SDK profile:
+
+```bash
+export HARNESS_AGENT_MODE=native
+export DEEPSEEK_API_KEY='...'
+export HARNESS_HOME="$(pwd)/data/harness"
+npm start
+```
+
+The host application starts an SDK worker with a one-use patch that disables
+Shell, file and working-directory tools, and loads `harness/bi-tool.mjs`. The
+model sees only `bi_catalog` and `bi_query` (plus any unmodified SDK profile
+system facilities), never the database connection string. Each analysis turn
+uses a fresh 256-bit authorization token bound server-side to the active
+user/tenant/dataset, expires after 120 seconds, permits 8 queries and 5 catalog
+calls, and is revoked on completion. The loopback-only API
+`POST /api/internal/agent-tool` requires this token and cannot be called with a
+browser session cookie. Tool traces are saved alongside the verified result.
+
+**Limits:** The 120-second window is a tool-access deadline, not a model-process
+wall-clock deadline; multi-tenant worker isolation and comprehensive tool
+restriction still require integration testing. No actual production DB or
+DeepSeek API connection was available in the automated tests. SDK execution is
+not production hardened. Do not expose this preview on a public network.

@@ -78,8 +78,9 @@ export async function withConnection(config,runner,{drivers}={}) {
     }
     const factory=drivers?.mysql ?? (await import('mysql2/promise')).createConnection;
     conn=await factory({host:config.host,port:config.port,database:config.database,user:config.user,password:config.password,connectTimeout:5000,ssl:config.ssl?{minVersion:'TLSv1.2',rejectUnauthorized:true}:undefined,multipleStatements:false,decimalNumbers:true,timezone:'Z'});
-    // Read-only SQL is enforced by our typed query builder, plus least-privilege database credentials.
-    const query=async(sql,params=[])=>{const [rows]=await conn.query({sql,values:params,timeout:15000});return rows;};
+    // Prepared queries prevent driver-side interpolation; database accounts must be read-only.
+    // Some supported engines do not implement START TRANSACTION READ ONLY; no writable SQL exists in the query compiler.
+    const query=async(sql,params=[])=>{const [rows]=await conn.execute({sql,values:params,timeout:15000});return rows;};
     return await runner(query);
   }catch(e){throw externalError(e);}finally{
     if(conn){try{if(isPg){await conn.query('ROLLBACK');await conn.end();}else await conn.end();}catch{}}

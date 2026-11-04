@@ -17,7 +17,7 @@ const fakeMysql=async options=>{
   assert.equal(options.host,'db.example.internal');
   assert.equal(options.multipleStatements,false);
   return {
-    async query(q){
+    async execute(q){
       const sql=typeof q==='string'?q:q.sql;
       queries.push({sql,params:q.values});
       if(sql.includes('information_schema.columns'))return [[

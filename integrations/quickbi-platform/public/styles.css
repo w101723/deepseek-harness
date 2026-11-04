@@ -8,3 +8,15 @@
 .canvas-surface{min-height:320px;background:radial-gradient(#d6dce7 1px,transparent 1px);background-size:20px 20px;border:1px solid #e5eaf2;border-radius:14px;padding:20px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-content:start}
 .canvas-item{background:white;border:1px solid #d8e4ec;border-radius:10px;padding:15px;box-shadow:0 4px 12px #0000000a}
 @media(max-width:650px){.canvas-surface{grid-template-columns:1fr}}
+/* AIPro canvas: viewport is scrollable and supports drag/resize at fixed grid units. */
+.canvas-layout{grid-template-columns:minmax(230px,0.65fr) minmax(0,1.35fr)}
+.canvas-viewport{overflow:auto;max-height:700px;min-width:0;border:1px solid #dee6f1;border-radius:12px;margin-top:12px;background:#f8fbff}
+.canvas-viewport .canvas-surface{position:relative;display:block;box-sizing:border-box;width:960px;min-width:960px;padding:0;border:0;border-radius:0;background-image:radial-gradient(#b8c5d5 .9px,transparent .9px);background-size:40px 40px}
+.canvas-viewport .canvas-item{position:absolute;box-sizing:border-box;overflow:hidden;touch-action:none;box-shadow:0 5px 15px #2b4a6c1a;padding:10px 12px;min-height:30px}
+.canvas-handle{cursor:grab;touch-action:none;user-select:none;gap:5px}
+.canvas-handle:active{cursor:grabbing}
+.canvas-handle b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.canvas-resize{position:absolute;bottom:0;right:0;width:21px;height:21px;border:0;background:transparent;cursor:nwse-resize;touch-action:none}
+.canvas-resize:after{content:'◢';position:absolute;right:3px;bottom:0;color:#7388a4;font-size:15px}
+.canvas-empty{position:absolute;top:18px;left:18px;color:#62758c}
+@media(max-width:960px){.canvas-layout{grid-template-columns:1fr}}

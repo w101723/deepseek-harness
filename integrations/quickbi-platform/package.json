@@ -1,9 +1,9 @@
 {
   "name": "@w101723/quickbi-platform-foundation",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Phase 1 AIPro, real database connectors and typed semantic query foundation",
+  "description": "Phase 1 AIPro native Harness tools, guarded live SQL connectors, persisted analysis",
   "engines": {
     "node": ">=22.14"
   },
@@ -15,6 +15,7 @@
   "optionalDependencies": {
     "@deepseek-ai/dsh-sdk-client": "0.2.2-alpha.3",
     "pg": "^8.13.0",
-    "mysql2": "^3.12.0"
+    "mysql2": "^3.12.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-alpha.3"
   }
 }

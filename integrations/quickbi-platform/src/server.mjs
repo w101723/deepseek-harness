@@ -7,7 +7,9 @@ import { executeQuery, suggestSpec, InputError, getDataset } from './query.mjs';
 import { narrateWithHarness } from './harness.mjs';
 import { SUPPORTED_SOURCES, validateConnection, encryptCredentials, sourcePublic, testSource, sourceSchema, sourcePreview } from './connectors.mjs';
 import { createExternalModel, executeAnyQuery } from './query-external.mjs';
-import { createSession, listSessions, listMessages, analysisSession, askSession, createArtifact, artifacts, artifact, listTopics, createTopic, publishTopic, listCanvases, getCanvas, createCanvas, updateCanvas } from './analysis.mjs';
+import { createAgentBridge, isLoopback } from './agent-bridge.mjs';
+import { runNativeBiAgent } from './native-agent.mjs';
+import { createSession, listSessions, listMessages, analysisSession, askSession, createArtifact, artifacts, artifact, updateArtifact, listTopics, createTopic, publishTopic, listCanvases, getCanvas, createCanvas, updateCanvas } from './analysis.mjs';
 
 const publicDir=join(dirname(fileURLToPath(import.meta.url)),'../public');
 const assetMap={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css'};
@@ -67,6 +69,7 @@ function publicUser(db,ctx){
 export function createApp(opts={}){
   const db=openDatabase(opts.dbPath ?? ':memory:',{demoMode:opts.demoMode??false,bootstrapEmail:opts.bootstrapEmail,bootstrapPassword:opts.bootstrapPassword});
   const connectorOptions={drivers:opts.drivers};
+  const agentBridge=createAgentBridge(db,connectorOptions);
   const server=http.createServer(async(req,res)=>{
     try {
       const u=new URL(req.url,'http://localhost'), path=u.pathname, method=req.method;
@@ -76,8 +79,15 @@ export function createApp(opts={}){
         const file=assetMap[path], bytes=await readFile(join(publicDir,file));
         res.writeHead(200,{'Content-Type':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end(bytes);return;
       }
-      if(path==='/api/health'&&method==='GET')return json(res,{ok:true,service:'quickbi-platform',version:'0.1.0'});
+      if(path==='/api/health'&&method==='GET')return json(res,{ok:true,service:'quickbi-platform',version:'0.3.0'});
       if(!path.startsWith('/api/'))fail(404,'页面不存在');
+      // Only a localhost Harness subprocess holding a per-turn scoped token can call this route.
+      if(path==='/api/internal/agent-tool'){
+        if(method!=='POST'||!isLoopback(req.socket.remoteAddress))fail(404,'API 路由不存在');
+        const match=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization||'');
+        if(!match)fail(401,'缺少 Agent 能力令牌');
+        return json(res,await agentBridge.dispatch(match[1],await bodyJson(req)));
+      }
       if(!['GET','POST','PATCH','DELETE'].includes(method))fail(405,'方法不允许');
       if(method!=='GET')assertOrigin(req);
       if(path==='/api/login'&&method==='POST'){
@@ -207,7 +217,17 @@ export function createApp(opts={}){
       if(a){
         if(a[2]==='ask'&&method==='POST'){
           const b=await bodyJson(req);
-          return json(res,await askSession(db,ctx,a[1],b.question,{...connectorOptions,harnessEnabled:opts.harnessEnabled,harnessHome:opts.harnessHome,planner:opts.planner}));
+          const runAgent=opts.nativeAgentEnabled?async ({session,question,history,topic})=>{
+            const scope=agentBridge.open(ctx,session.dataset_id);
+            try{
+              const address=server.address();
+              if(!address||!address.port)fail(503,'Agent 服务尚未启动');
+              const answer=await (opts.nativeAgentRunner??runNativeBiAgent)({question,history,topic,url:`http://127.0.0.1:${address.port}`,capability:scope.token,home:opts.harnessHome});
+              if(!scope.last)fail(422,'Agent 未调用 bi_query，不能输出未经验证的分析结论');
+              return {...scope.last,summary:answer,toolTrace:scope.trace};
+            } finally {scope.close();}
+          }:undefined;
+          return json(res,await askSession(db,ctx,a[1],b.question,{...connectorOptions,harnessEnabled:opts.harnessEnabled&&!opts.nativeAgentEnabled,harnessHome:opts.harnessHome,planner:opts.planner,runAgent}));
         }
         if(!a[2]&&method==='GET')return json(res,{session:analysisSession(db,ctx,a[1]),messages:listMessages(db,ctx,a[1])});
       }
@@ -218,6 +238,7 @@ export function createApp(opts={}){
       }
       a=/^\/api\/ai\/artifacts\/([^/]+)$/.exec(path);
       if(a&&method==='GET')return json(res,{item:artifact(db,ctx,a[1])});
+      if(a&&method==='PATCH')return json(res,updateArtifact(db,ctx,a[1],await bodyJson(req)));
       if(path==='/api/ai/ask'&&method==='POST'){
         const b=await bodyJson(req),question=clean(b.question),datasets=list(db,'SELECT * FROM datasets WHERE tenant_id=? ORDER BY created_at LIMIT 50',ctx.tenantId);
         const spec=suggestSpec(question,datasets.filter(d=>!db.prepare('SELECT 1 FROM external_dataset_models WHERE dataset_id=?').get(d.id))),result=await executeAnyQuery(db,ctx,spec,connectorOptions);
@@ -246,7 +267,7 @@ export function createApp(opts={}){
   return {server,db};
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
-  const opts={dbPath:process.env.DB_PATH||'./data/quickbi.sqlite',demoMode:process.env.DEMO_MODE==='1',bootstrapEmail:process.env.BOOTSTRAP_EMAIL,bootstrapPassword:process.env.BOOTSTRAP_PASSWORD,harnessEnabled:process.env.HARNESS_ENABLE==='1',harnessHome:process.env.HARNESS_HOME};
+  const opts={dbPath:process.env.DB_PATH||'./data/quickbi.sqlite',demoMode:process.env.DEMO_MODE==='1',bootstrapEmail:process.env.BOOTSTRAP_EMAIL,bootstrapPassword:process.env.BOOTSTRAP_PASSWORD,harnessEnabled:process.env.HARNESS_ENABLE==='1',harnessHome:process.env.HARNESS_HOME,nativeAgentEnabled:process.env.HARNESS_AGENT_MODE==='native'};
   const {server}=createApp(opts),port=Number(process.env.PORT||3088),host=process.env.HOST||'127.0.0.1';
   server.listen(port,host,()=>console.log(`QuickBI platform listening at http://${host}:${port} (DEMO_MODE=${opts.demoMode})`));
 }
