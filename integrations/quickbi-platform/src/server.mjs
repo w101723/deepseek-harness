@@ -5,6 +5,9 @@ import { dirname, join } from 'node:path';
 import { id, token, hashToken, verifyPassword, openDatabase, audit } from './db.mjs';
 import { executeQuery, suggestSpec, InputError, getDataset } from './query.mjs';
 import { narrateWithHarness } from './harness.mjs';
+import { SUPPORTED_SOURCES, validateConnection, encryptCredentials, sourcePublic, testSource, sourceSchema, sourcePreview } from './connectors.mjs';
+import { createExternalModel, executeAnyQuery } from './query-external.mjs';
+import { createSession, listSessions, listMessages, analysisSession, askSession, createArtifact, artifacts, artifact, listTopics, createTopic, publishTopic, listCanvases, getCanvas, createCanvas, updateCanvas } from './analysis.mjs';
 
 const publicDir=join(dirname(fileURLToPath(import.meta.url)),'../public');
 const assetMap={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css'};
@@ -63,6 +66,7 @@ function publicUser(db,ctx){
 }
 export function createApp(opts={}){
   const db=openDatabase(opts.dbPath ?? ':memory:',{demoMode:opts.demoMode??false,bootstrapEmail:opts.bootstrapEmail,bootstrapPassword:opts.bootstrapPassword});
+  const connectorOptions={drivers:opts.drivers};
   const server=http.createServer(async(req,res)=>{
     try {
       const u=new URL(req.url,'http://localhost'), path=u.pathname, method=req.method;
@@ -116,38 +120,57 @@ export function createApp(opts={}){
         }
       }
       if(path==='/api/datasources'){
-        if(method==='GET')return json(res,{items:list(db,'SELECT * FROM datasources WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId)});
+        if(method==='GET')return json(res,{items:list(db,'SELECT * FROM datasources WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId).map(sourcePublic)});
         if(method==='POST'){
           requireRole(ctx,'editor');const b=await bodyJson(req);workspace(db,ctx,b.workspaceId);
-          if(b.kind!=='demo-sqlite')fail(422,'当前仅实现 demo-sqlite 连接器');
-          const newId=id();db.prepare('INSERT INTO datasources(id,tenant_id,workspace_id,name,kind) VALUES (?,?,?,?,?)').run(newId,ctx.tenantId,b.workspaceId,name(b.name),b.kind);
+          let sealed=null;
+          if(b.kind!=='demo-sqlite'){
+            if(!SUPPORTED_SOURCES.includes(b.kind))fail(422,'不支持的数据源类型');
+            if(!b.host||!b.database||!b.user||typeof b.password!=='string')fail(422,'真实数据源需要完整连接参数');
+            const config=validateConnection({...b,ssl:b.ssl===true||b.ssl==='on'});
+            sealed=encryptCredentials(config);
+            if(opts.skipConnectionValidation!==true){await testSource({kind:b.kind,connection_json:sealed},connectorOptions);}
+          }
+          const newId=id();db.prepare('INSERT INTO datasources(id,tenant_id,workspace_id,name,kind,connection_json) VALUES (?,?,?,?,?,?)').run(newId,ctx.tenantId,b.workspaceId,name(b.name),b.kind,sealed);
           audit(db,ctx,'datasource.create','datasource',newId);return json(res,{id:newId},201);
         }
       }
       let m=/^\/api\/datasources\/([^/]+)\/(test|schema|preview)$/.exec(path);
       if(m&&method==='GET'){
         const ds=datasource(db,ctx,m[1]);
+        if(ds.kind!=='demo-sqlite'){
+          requireRole(ctx,'editor');
+          const response=m[2]==='test'?await testSource(ds,connectorOptions):m[2]==='schema'?await sourceSchema(ds,connectorOptions):await sourcePreview(ds,connectorOptions);
+          audit(db,ctx,`datasource.${m[2]}`,'datasource',ds.id);return json(res,response);
+        }
         if(m[2]==='test')return json(res,{ok:true,kind:ds.kind});
-        if(m[2]==='schema')return json(res,{tables:[{name:'sales_demo',fields:['order_date','region','category','channel','revenue','cost','quantity']}],kind:ds.kind});
+        if(m[2]==='schema')return json(res,{tables:[{schema:'main',name:'sales_demo',fields:['order_date','region','category','channel','revenue','cost','quantity'],columns:[{name:'region',type:'text'},{name:'revenue',type:'real'}]}],kind:ds.kind});
         return json(res,{columns:['order_date','region','category','channel','revenue','cost','quantity'],rows:list(db,'SELECT order_date,region,category,channel,revenue,cost,quantity FROM sales_demo WHERE tenant_id=? AND workspace_id=? LIMIT 15',ctx.tenantId,ds.workspace_id)});
       }
       if(path==='/api/datasets'){
         if(method==='GET')return json(res,{items:list(db,'SELECT * FROM datasets WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId).map(x=>({...x,dimensions:JSON.parse(x.dimensions_json),metrics:JSON.parse(x.metrics_json)}))});
         if(method==='POST'){
           requireRole(ctx,'editor');const b=await bodyJson(req),ds=datasource(db,ctx,b.datasourceId);
-          const allowedDims=['region','category','channel','order_date'],allowedMetrics=['revenue','cost','quantity','orders'];
-          const dims=b.dimensions??allowedDims,metrics=b.metrics??allowedMetrics;
-          if(!Array.isArray(dims)||!dims.length||dims.some(x=>!allowedDims.includes(x))||!Array.isArray(metrics)||!metrics.length||metrics.some(x=>!allowedMetrics.includes(x)))fail(400,'维度或指标配置无效');
+          let dims,metrics,model=null;
+          if(ds.kind==='demo-sqlite'){
+            const allowedDims=['region','category','channel','order_date'],allowedMetrics=['revenue','cost','quantity','orders'];
+            dims=b.dimensions??allowedDims;metrics=b.metrics??allowedMetrics;
+            if(!Array.isArray(dims)||!dims.length||dims.some(x=>!allowedDims.includes(x))||!Array.isArray(metrics)||!metrics.length||metrics.some(x=>!allowedMetrics.includes(x)))fail(400,'维度或指标配置无效');
+          }else{
+            model=await createExternalModel(db,ctx,ds,{schema:b.schema,table:b.table},connectorOptions);
+            dims=model.dimensions;metrics=Object.keys(model.metrics);
+          }
           const newId=id();db.prepare('INSERT INTO datasets(id,tenant_id,workspace_id,datasource_id,name,dimensions_json,metrics_json) VALUES (?,?,?,?,?,?,?)').run(newId,ctx.tenantId,ds.workspace_id,ds.id,name(b.name),JSON.stringify([...new Set(dims)]),JSON.stringify([...new Set(metrics)]));
+          if(model)db.prepare('INSERT INTO external_dataset_models(dataset_id,schema_name,table_name,definition_json) VALUES (?,?,?,?)').run(newId,model.schema,model.table,JSON.stringify(model));
           audit(db,ctx,'dataset.create','dataset',newId);return json(res,{id:newId,version:1},201);
         }
       }
       m=/^\/api\/datasets\/([^/]+)\/preview$/.exec(path);
       if(m&&method==='GET'){
         const ds=getDataset(db,ctx,m[1]),dim=JSON.parse(ds.dimensions_json)[0],metric=JSON.parse(ds.metrics_json)[0];
-        return json(res,executeQuery(db,ctx,{datasetId:ds.id,dimensions:[dim],metrics:[metric],limit:20}));
+        return json(res,await executeAnyQuery(db,ctx,{datasetId:ds.id,dimensions:[dim],metrics:[metric],limit:20},connectorOptions));
       }
-      if(path==='/api/query'&&method==='POST')return json(res,executeQuery(db,ctx,await bodyJson(req)));
+      if(path==='/api/query'&&method==='POST')return json(res,await executeAnyQuery(db,ctx,await bodyJson(req),connectorOptions));
       if(path==='/api/query/history'&&method==='GET')return json(res,{items:list(db,'SELECT id,dataset_id,row_count,created_at FROM query_runs WHERE tenant_id=? ORDER BY created_at DESC LIMIT 50',ctx.tenantId)});
       if(path==='/api/dashboards'){
         if(method==='GET')return json(res,{items:list(db,'SELECT * FROM dashboards WHERE tenant_id=? ORDER BY updated_at DESC',ctx.tenantId).map(x=>({...x,widgets:JSON.parse(x.widgets_json)}))});
@@ -169,9 +192,35 @@ export function createApp(opts={}){
           if(updated.changes!==1)fail(409,'版本冲突');audit(db,ctx,'dashboard.update','dashboard',d.id);return json(res,{id:d.id,version:b.version+1});
         }
       }
+      if(path==='/api/ai/topics'&&method==='GET')return json(res,{items:listTopics(db,ctx)});
+      if(path==='/api/ai/topics'&&method==='POST')return json(res,createTopic(db,ctx,await bodyJson(req)),201);
+      let topicRoute=/^\/api\/ai\/topics\/([^/]+)\/publish$/.exec(path);
+      if(topicRoute&&method==='POST')return json(res,publishTopic(db,ctx,topicRoute[1],(await bodyJson(req)).version));
+      if(path==='/api/ai/canvases'&&method==='GET')return json(res,{items:listCanvases(db,ctx)});
+      if(path==='/api/ai/canvases'&&method==='POST')return json(res,createCanvas(db,ctx,await bodyJson(req)),201);
+      const canvasRoute=/^\/api\/ai\/canvases\/([^/]+)$/.exec(path);
+      if(canvasRoute&&method==='GET')return json(res,{item:getCanvas(db,ctx,canvasRoute[1])});
+      if(canvasRoute&&method==='PATCH')return json(res,updateCanvas(db,ctx,canvasRoute[1],await bodyJson(req)));
+      if(path==='/api/ai/sessions'&&method==='GET')return json(res,{items:listSessions(db,ctx)});
+      if(path==='/api/ai/sessions'&&method==='POST')return json(res,createSession(db,ctx,await bodyJson(req)),201);
+      let a=/^\/api\/ai\/sessions\/([^/]+)(?:\/(ask))?$/.exec(path);
+      if(a){
+        if(a[2]==='ask'&&method==='POST'){
+          const b=await bodyJson(req);
+          return json(res,await askSession(db,ctx,a[1],b.question,{...connectorOptions,harnessEnabled:opts.harnessEnabled,harnessHome:opts.harnessHome,planner:opts.planner}));
+        }
+        if(!a[2]&&method==='GET')return json(res,{session:analysisSession(db,ctx,a[1]),messages:listMessages(db,ctx,a[1])});
+      }
+      if(path==='/api/ai/artifacts'&&method==='GET')return json(res,{items:artifacts(db,ctx)});
+      if(path==='/api/ai/artifacts'&&method==='POST'){
+        requireRole(ctx,'editor');const b=await bodyJson(req);
+        return json(res,createArtifact(db,ctx,b.sessionId,b),201);
+      }
+      a=/^\/api\/ai\/artifacts\/([^/]+)$/.exec(path);
+      if(a&&method==='GET')return json(res,{item:artifact(db,ctx,a[1])});
       if(path==='/api/ai/ask'&&method==='POST'){
         const b=await bodyJson(req),question=clean(b.question),datasets=list(db,'SELECT * FROM datasets WHERE tenant_id=? ORDER BY created_at LIMIT 50',ctx.tenantId);
-        const spec=suggestSpec(question,datasets),result=executeQuery(db,ctx,spec);
+        const spec=suggestSpec(question,datasets.filter(d=>!db.prepare('SELECT 1 FROM external_dataset_models WHERE dataset_id=?').get(d.id))),result=await executeAnyQuery(db,ctx,spec,connectorOptions);
         const dims=spec.dimensions,metric=spec.metrics[0];
         const summary=`已按${dims.length?dims.join('、'):'全量'}汇总 ${metric}，共返回 ${result.count} 行。此结果来自受控语义查询，不代表因果归因。`;
         let narration=null,error=null;
@@ -189,7 +238,7 @@ export function createApp(opts={}){
       fail(404,'API 路由不存在');
     }catch(e){
       const status=e instanceof InputError?e.status:(e?.code==='SQLITE_CONSTRAINT_UNIQUE'?409:500);
-      if(status===500)console.error('[server error]',e);
+      if(status===500)console.error('[server error]',e?.name||'Error');
       json(res,{error:status===500?'服务器内部错误':e.message},status);
     }
   });

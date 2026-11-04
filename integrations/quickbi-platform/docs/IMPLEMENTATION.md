@@ -1,45 +1,27 @@
-# 功能矩阵落地记录 · Batch 01（2026-11-04）
+# Phase 1 engineering progress · 2026-11-04
 
-> **范围更新**：现在按 [PHASE_SCOPE.md](PHASE_SCOPE.md) 执行：一期 AIPro + 真实数据接入，二期仅仪表板，ETL 移除。以下是历史 Batch 01 已实现情况，不是最新阶段完成证明；仪表板原型保留但不继续优先开发。
+## Verified locally (Node 22.16, `npm test`)
 
-这里的“基础实现”意为相应功能的局部可运行能力，不等于整行功能矩阵已经验收。正式功能矩阵中的默认状态仍应保持待开发，直到完成官方操作对照、权限负例、业务边界和性能门禁。
+- 15 automated test cases pass; includes original demo login/workspace/query/dashboard safety tests.
+- New API integration tests use **injected fake PostgreSQL/MySQL drivers**, covering connection test, metadata, preview, dataset, SQL binding, session continuity, topic publishing, canvas version conflict, cross-tenant rejection and credential encryption.
+- Old `datasources` schema migrates to the expanded multi-engine table, retaining existing datasets.
+- Browser application includes actual source connection form, dataset table selection, AIPro session, saved artifacts, topics and canvas layout view.
 
-| 功能 ID | 本批进展 | 证据/接口 | 未覆盖 |
-|---|---|---|---|
-| F-01-001 登录/退出 | 基础实现 | `POST /api/login/logout` + API 测试 | SSO、密码重置、设备管理 |
-| F-01-002 首页 | 基础实现 | `/` 首页 + 概览数字 | 最近访问/个人化 |
-| F-01-003 导航 | 基础实现 | 前端七个导航模块 | 全 156 页面 |
-| F-01-011 全局错误/空态 | 基础实现 | API 规范错误码、空态组件 | 全场景 |
-| F-02-001 租户管理 | 基础实现 | tenant/membership 数据模型、切换校验 | 自服务开通/审批 |
-| F-02-002 工作空间 | 基础实现 | `GET/POST /api/workspaces` | 归档、成员级 ACL |
-| F-02-006 组织角色 | 基础实现 | admin/editor/viewer 服务端策略 | 自定义角色 |
-| F-02-016 审计 | 基础实现 | `GET /api/audit` | 审计检索/留存策略 |
-| F-03-001 新建数据源 | 基础实现 | demo-sqlite 创建 | 外部数据库 |
-| F-03-002 连接测试 | 基础实现 | `GET /api/datasources/:id/test` | 真正外部连接诊断 |
-| F-03-004 表发现 | 基础实现 | `/schema` 内置表元数据 | 外部 Schema |
-| F-03-006 数据预览 | 基础实现 | `/preview` | 跨源数据 |
-| F-05-001 单表数据集 | 基础实现 | dataset CRUD（创建/列表） | 复杂物理模型 |
-| F-05-006 维度 | 基础实现 | dataset.dimensions_json | 计算维 |
-| F-05-007 度量 | 基础实现 | dataset.metrics_json | 表达式/自定义指标 |
-| F-05-014 数据集预览 | 基础实现 | `/datasets/:id/preview` | 自定义列投影 |
-| F-06-001 统一查询协议 | 基础实现 | `QuerySpec` 编译服务 | 方言适配器 |
-| F-06-004 只读校验 | 基础实现 | 只允许预定义查询，不接受自由 SQL | SQL AST 只读校验 |
-| F-06-005 权限策略注入 | 基础实现 | tenant_id + workspace_id 强制绑定 | 行/列复杂策略 |
-| F-06-006 超时与行数 | 部分实现 | 限制最多 100 行 | 真正查询超时/资源限制 |
-| F-06-015 查询追踪 | 基础实现 | query_runs + audit | 分布式 trace |
-| 仪表板 / AIPro | 原型切片 | dashboard widgets / `POST /api/ai/ask` | 全功能大部分未覆盖 |
+## Implemented, but awaiting verification in an actual database environment
 
-## 工程门禁
+- `pg` adapter for PostgreSQL, and `mysql2` adapter for MySQL/TiDB/StarRocks compatibility.
+- Read-only semantic query compiler and database SQL dialect support.
+- Optional DeepSeek Harness planning/narration SDK path. The existing tests inject a fake planner, **not** a real DeepSeek model or native agent tool.
 
-- `npm test` 必须覆盖跨租户数据泄露、角色拒绝、CSRF、SQL 参数安全、仪表板版本冲突及真实数据闭环。
-- 该阶段**不启用**默认的 Harness Shell / FS / 自修改插件权限。仅将受控查询结果交给显式启用的独立 SDK 解释层。
-- 真实外部连接器、复杂报表、高权限操作和多用户空间 ACL 仍需独立的安全设计与测试。
-## 当前一期阻塞项（按优先级）
+## Out of scope / still pending
 
-1. MySQL/PostgreSQL/TiDB/StarRocks 真实只读连接器、加密凭据、Schema 发现与预览：**未实现**（仅演示 SQLite）。
-2. 语义模型映射真实源和受控 QuerySpec：**未实现**（现有编译器只处理演示销售表）。
-3. Harness BI 专用工具 + 持久多轮会话：**未实现**（当前只能可选解读结果）。
-4. AIPro 主题、画布、图表作品的保存/重开：**未实现**。
-5. 真实连接到问数产物的权限/审计端到端验证：**未完成**。
+- **ETL removed entirely** (no data movement, transformations, sync or materialization).
+- External connection live smoke against real MySQL, PostgreSQL, TiDB, StarRocks; TLS validation; TLS defaults need deployment hardening.
+- Multi-user asset-level ACL and row/column policies, SSO, secure production infrastructure and database connection pooling.
+- Native Harness `bi_query` Tool/Skill/MCP runtime + validated iterative multi-tool planning (currently SDK JSON planning + deterministic query execution).
+- Full AIPro unlimited canvas UX, sophisticated charts and interactivity, enterprise gallery and report generation.
+- Phase 2 full dashboard designer: existing demonstration dashboard is not complete.
 
-ETL、抽取加速、传统电子表格与大屏不再列为本次两期验收内容。
+## Design note
+
+Tenant isolation for external sources is metadata/source-ownership isolation. Unlike the built-in demo SQL, an external table **does not automatically contain tenant_id**. For this reason, current external SQL is limited to editor/admin and any required row-level restrictions must be enforced via restricted database users/views until full dataset-policy implementation lands.
