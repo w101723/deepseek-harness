@@ -93,8 +93,8 @@ export async function sourceSchema(source,options={}){
   const cfg=connectionFor(source); const pg=dialect(source.kind)==='postgres';
   return withConnection(cfg,async query=>{
     const rows=pg?
-      await query(`SELECT table_schema AS schema_name,table_name,column_name,data_type FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema,table_name,ordinal_position LIMIT 500`):
-      await query(`SELECT table_schema AS schema_name,table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=? ORDER BY table_name,ordinal_position LIMIT 500`,[cfg.database]);
+      await query(`SELECT table_schema AS schema_name,table_name AS table_name,column_name AS column_name,data_type AS data_type FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_schema,table_name,ordinal_position LIMIT 500`):
+      await query(`SELECT table_schema AS schema_name,table_name AS table_name,column_name AS column_name,data_type AS data_type FROM information_schema.columns WHERE table_schema=? ORDER BY table_name,ordinal_position LIMIT 500`,[cfg.database]);
     const tables=new Map();
     for(const r of rows){
       if(!ident.test(r.schema_name)||!ident.test(r.table_name)||!ident.test(r.column_name))continue;
