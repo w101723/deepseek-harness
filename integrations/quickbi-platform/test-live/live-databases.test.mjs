@@ -131,7 +131,7 @@ test('real PostgreSQL/MySQL drivers: dataset → QuerySpec → AIPro → artifac
       const catalog = await c.request(`/api/datasources/${sourceId}/schema`);
       assert.equal(catalog.status, 200, JSON.stringify(catalog.data));
       const table = catalog.data.tables.find(x => x.schema === item.schema && x.name === 'quickbi_ci_orders');
-      assert.ok(table, `Expected real table in ${item.kind} schema`);
+      assert.ok(table, `Expected ${item.schema}.quickbi_ci_orders in ${item.kind} metadata: ${JSON.stringify(catalog.data).slice(0,2500)}`);
       assert.ok(table.fields.includes('amount'));
       const preview = await c.request(`/api/datasources/${sourceId}/preview`);
       assert.equal(preview.status, 200);
