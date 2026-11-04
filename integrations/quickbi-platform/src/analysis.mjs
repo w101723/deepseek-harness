@@ -86,7 +86,9 @@ export async function askSession(db,ctx,sessionId,question,options={}){
   if(options.harnessEnabled && !options.planner && !options.runAgent){
     summary=await narrateWithHarness(question,result,{enabled:true,home:options.harnessHome})||summary;
   }
-  // A policy update while the model is reasoning invalidates this turn's evidence.
+  // A role or policy update while the model is reasoning invalidates this turn.
+  const actor=db.prepare('SELECT role FROM memberships WHERE tenant_id=? AND user_id=?').get(ctx.tenantId,ctx.userId);
+  if(!actor || actor.role!==ctx.role)throw new InputError('分析期间角色已变更，请重新运行',403);
   readableCatalog(db,ctx,dataset);
   if(datasetPolicyRevision(db,ctx,dataset.id)!==initialRevision)throw new InputError('数据权限在分析期间发生变化，请重新查询',409);
   const userId=id(),assistantId=id();
