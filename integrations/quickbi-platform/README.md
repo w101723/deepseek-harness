@@ -115,3 +115,11 @@ Without real DB credentials this command intentionally fails. It verifies connec
 ## Exporting AIPro works
 
 Save an AIPro analysis as **图表作品** or **分析报告**, open the saved work and choose CSV, Markdown or JSON. The API is `GET /api/ai/artifacts/:id/export?format=csv|md|json`. Exports are generated only from persisted, already-authorized evidence; CSV cells with spreadsheet-formula prefixes are neutralized, responses are attachments with `no-store`, and the authorization check runs before streaming any bytes. Any dataset-policy revision or creator-role change invalidates old report downloads.
+
+## 定时分析（一期）
+
+`/api/ai/schedules` 提供持久化定时分析：复用同一份受控 QuerySpec、数据集权限和行过滤。Web「定时分析」可创建、手动执行、暂停或恢复并查看最近 50 次运行记录。结果最多保存 30 行、100 KB，绝不作为 ETL、数据同步或外部推送渠道。
+
+Node 服务启动后默认每 30 秒检查到期任务；设置 `SCHEDULE_WORKER_ENABLED=0` 禁用。支持 15、30、60、180、360、720、1440、10080 分钟周期。每次执行重新检查发起者角色和策略修订，授权变化后旧结果不可再读取。调度目前是**单实例 SQLite 租约实现**，不提供高可用、漏执行补偿、分布式调度或邮件/IM 推送，**不得直接作为生产级定时任务平台**。
+
+API：`GET/POST /api/ai/schedules`、`GET/PATCH /api/ai/schedules/:id`、`POST /api/ai/schedules/:id/run`、`GET /api/ai/schedules/:id/runs`。
