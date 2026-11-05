@@ -6,7 +6,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 
 process.env.DATASOURCE_MASTER_KEY=randomBytes(32).toString('hex');
 process.env.DATASOURCE_ALLOWED_HOSTS='mock.internal';
-const driver=async()=>({
+const driver=async(config)=>{if(config?.password==='REJECT')throw Object.assign(new Error('bad credentials'),{code:'1045'});return ({
   async execute(o){const sql=typeof o==='string'?o:o.sql;
     if(sql.includes('information_schema.tables')){if(sql.includes('COUNT(*)'))return [[{total_count:42}]];return [[{schema_name:'analytics',table_name:'orders'},{schema_name:'analytics',table_name:'orders_2026'}]];}
     if(sql.includes('information_schema.columns'))return [[
@@ -17,7 +17,7 @@ const driver=async()=>({
     if(sql.startsWith('SELECT 1'))return [[{connected:1}]];
     return [[{region:'华东',sum_amount:21,rows:2}]];
   }, async end(){}
-});
+});};
 const {server,db}=createApp({demoMode:true,drivers:{mysql:driver}});
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const base=`http://127.0.0.1:${server.address().port}`;
@@ -106,3 +106,26 @@ test('tenant boundaries and viewer writes are denied',async()=>{
 });
 
 test.after(async()=>{await new Promise(r=>server.close(r));});
+test('data source credentials only change after successful connection test; datasets stay bound',async()=>{
+  const created=await call('/api/datasources','POST',{workspaceId:workspace.id,name:'Credential rotation',kind:'mysql',host:'mock.internal',database:'analytics',user:'ro',password:'OLD'},admin);
+  assert.equal(created.status,201);
+  const id=created.body.id;
+  const dataset=await call('/api/assets/datasets/table','POST',{datasourceId:id,name:'Reference',schema:'analytics',table:'orders'},admin);
+  assert.equal(dataset.status,201);
+  const original=db.prepare('SELECT connection_json FROM datasources WHERE id=?').get(id).connection_json;
+  const updated=await call('/api/assets/sources/'+id,'PATCH',{version:1,connection:{host:'mock.internal',port:3306,database:'analytics',user:'analyst',password:'NEW-SECRET',ssl:false}},admin);
+  assert.equal(updated.status,200,JSON.stringify(updated.body));
+  assert.equal(updated.body.connectionUpdated,true);
+  const encrypted=db.prepare('SELECT connection_json FROM datasources WHERE id=?').get(id).connection_json;
+  assert.notEqual(encrypted,original);assert.ok(!encrypted.includes('NEW-SECRET'));
+  const {decryptCredentials}=await import('../src/connectors.mjs');
+  assert.equal(decryptCredentials(encrypted).password,'NEW-SECRET');
+  assert.equal((await call('/api/assets/sources','GET',undefined,admin)).body.items.find(x=>x.id===id).version,2);
+  const bad={host:'mock.internal',port:3306,database:'analytics',user:'ro',password:'REJECT',ssl:false};
+  const rejected=await call('/api/assets/sources/'+id,'PATCH',{version:2,name:'invalid-name',connection:bad},admin);
+  assert.equal(rejected.status,502);
+  assert.equal(db.prepare('SELECT connection_json FROM datasources WHERE id=?').get(id).connection_json,encrypted);
+  assert.notEqual(db.prepare('SELECT name FROM datasources WHERE id=?').get(id).name,'invalid-name');
+  assert.equal((await call('/api/assets/sources/'+id,'PATCH',{version:2,connection:{...bad,port:3307,password:'valid'}},admin)).status,409);
+  assert.equal((await call('/api/assets/sources/'+id,'PATCH',{version:1,name:'stale'},admin)).status,409);
+});

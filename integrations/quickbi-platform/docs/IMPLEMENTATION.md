@@ -84,3 +84,10 @@ Tenant isolation for external sources is metadata/source-ownership isolation. Un
 - Persisted SQL selection and base filter list in the external dataset model. The typed SQL compiler binds all immutable predicates before caller filters and dataset policies, across AIPro, dashboard and scheduled query routes.
 - SQL dataset projection still restricts visible fields; hidden base predicate columns cannot be selected by the caller. Copied datasets retain the restrictions.
 - Added Node security tests and disposable PostgreSQL/MySQL live-driver SQL-dataset regression to CI. This is not general-purpose arbitrary SQL support or multi-table modeling.
+
+## Batch 11 · source credential rotation (2026-11-05)
+
+- Added optional source PATCH `connection` payload for existing PostgreSQL/MySQL/TiDB/StarRocks sources: validate allowlisted host, test new read-only connection, then atomically swap encrypted credentials and resource version.
+- Existing dataset references prohibit switching host, port or database to avoid silently changing query provenance. Password and account rotation remains available.
+- Added the source management UI '更新连接' dialog with TLS selector and secret-only-on-submit fields; old passwords are never returned.
+- Revalidation after asynchronous connection test protects against role change and optimistic concurrency conflicts. Automated tests cover successful rotation, rejected credentials rollback, dependency protection and stale versions.

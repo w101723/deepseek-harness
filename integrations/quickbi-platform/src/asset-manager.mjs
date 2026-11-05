@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { InputError, getDataset } from './query.mjs';
 import { readableCatalog } from './dataset-policy.mjs';
-import { sourcePublic, sourceSchema, connectionFor, withConnection, identifier } from './connectors.mjs';
+import { sourcePublic, sourceSchema, connectionFor, withConnection, identifier, decryptCredentials, encryptCredentials, validateConnection } from './connectors.mjs';
 import { modelFromTable } from './query-external.mjs';
 import { audit } from './db.mjs';
 
@@ -237,11 +237,26 @@ export async function handleAssetRoute(db,ctx,method,path,body,options={}){
       const current=one(db,'SELECT * FROM source_assets WHERE source_id=? AND tenant_id=?',s.id,ctx.tenantId),version=current?.version??1;
       if(body.version!==version)invalid('数据源版本冲突',409);
       const remark=description(body.remark);
+      let encrypted=null;
+      if(body.connection!==undefined){
+        if(s.kind==='demo-sqlite')invalid('演示数据源不支持修改外部连接');
+        if(!body.connection||typeof body.connection!=='object'||Array.isArray(body.connection)||(body.connection.kind&&body.connection.kind!==s.kind))invalid('连接类型不可更改');
+        const candidate=validateConnection({...body.connection,kind:s.kind});
+        const original=decryptCredentials(s.connection_json);
+        const hasDatasets=!!one(db,'SELECT 1 FROM datasets WHERE datasource_id=? AND tenant_id=?',s.id,ctx.tenantId);
+        if(hasDatasets&&['host','port','database'].some(k=>String(candidate[k])!==String(original[k])))invalid('已有数据集引用此数据源；请保持主机、端口和数据库不变，只更新账户、密码或 TLS',409);
+        await withConnection(candidate,async query=>{await query('SELECT 1 AS connected');},options);
+        encrypted=encryptCredentials(candidate);
+      }
+      const active=one(db,'SELECT role FROM memberships WHERE user_id=? AND tenant_id=?',ctx.userId,ctx.tenantId);
+      if(!active||active.role!==ctx.role)invalid('连接验证期间账户角色发生变化，请重新提交',403);
       write(db,()=>{
-        db.prepare('UPDATE datasources SET name=? WHERE id=? AND tenant_id=?').run(body.name===undefined?s.name:name(body.name),s.id,ctx.tenantId);
-        db.prepare(`INSERT INTO source_assets(source_id,tenant_id,owner_id,updated_by,remark,version) VALUES(?,?,?,?,?,?) ON CONFLICT(source_id) DO UPDATE SET updated_by=excluded.updated_by,remark=excluded.remark,version=source_assets.version+1,updated_at=CURRENT_TIMESTAMP`).run(s.id,ctx.tenantId,ctx.userId,ctx.userId,remark??current?.remark??'',version+1);
-        audit(db,ctx,'source.update','datasource',s.id);
-      });return response({id:s.id,version:version+1});
+        const latest=one(db,'SELECT version FROM source_assets WHERE source_id=? AND tenant_id=?',s.id,ctx.tenantId);
+        if((latest?.version??1)!==version||!one(db,'SELECT id FROM datasources WHERE id=? AND tenant_id=?',s.id,ctx.tenantId))invalid('数据源版本冲突，请刷新页面',409);
+        db.prepare('UPDATE datasources SET name=?,connection_json=COALESCE(?,connection_json) WHERE id=? AND tenant_id=?').run(body.name===undefined?s.name:name(body.name),encrypted,s.id,ctx.tenantId);
+        db.prepare('INSERT INTO source_assets(source_id,tenant_id,owner_id,updated_by,remark,version) VALUES(?,?,?,?,?,?) ON CONFLICT(source_id) DO UPDATE SET updated_by=excluded.updated_by,remark=excluded.remark,version=source_assets.version+1,updated_at=CURRENT_TIMESTAMP').run(s.id,ctx.tenantId,ctx.userId,ctx.userId,remark??current?.remark??'',version+1);
+        audit(db,ctx,encrypted?'source.connection.rotate':'source.update','datasource',s.id);
+      });return response({id:s.id,version:version+1,connectionUpdated:!!encrypted});
     }
     if(method==='DELETE'){
       if(one(db,'SELECT 1 FROM datasets WHERE tenant_id=? AND datasource_id=?',ctx.tenantId,s.id))invalid('数据源已被数据集引用，不能删除',409);

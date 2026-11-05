@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --check src/server.mjs && node --check src/query.mjs && node --check src/db.mjs && node --check public/app.js
+      - run: node --check src/server.mjs && node --check src/query.mjs && node --check src/db.mjs && node --check public/app.js && node --check src/asset-manager.mjs && node --check public/asset-workbench.js
       - run: npm test
 
   live-postgres-mysql:
