@@ -120,6 +120,7 @@ test('data source credentials only change after successful connection test; data
   assert.notEqual(encrypted,original);assert.ok(!encrypted.includes('NEW-SECRET'));
   const {decryptCredentials}=await import('../src/connectors.mjs');
   assert.equal(decryptCredentials(encrypted).password,'NEW-SECRET');
+  assert.ok(db.prepare('SELECT revision FROM dataset_policy_generations WHERE dataset_id=?').get(dataset.body.id).revision>=1,'rotation must invalidate existing query evidence');
   assert.equal((await call('/api/assets/sources','GET',undefined,admin)).body.items.find(x=>x.id===id).version,2);
   const bad={host:'mock.internal',port:3306,database:'analytics',user:'ro',password:'REJECT',ssl:false};
   const rejected=await call('/api/assets/sources/'+id,'PATCH',{version:2,name:'invalid-name',connection:bad},admin);

@@ -254,6 +254,11 @@ export async function handleAssetRoute(db,ctx,method,path,body,options={}){
         const latest=one(db,'SELECT version FROM source_assets WHERE source_id=? AND tenant_id=?',s.id,ctx.tenantId);
         if((latest?.version??1)!==version||!one(db,'SELECT id FROM datasources WHERE id=? AND tenant_id=?',s.id,ctx.tenantId))invalid('数据源版本冲突，请刷新页面',409);
         db.prepare('UPDATE datasources SET name=?,connection_json=COALESCE(?,connection_json) WHERE id=? AND tenant_id=?').run(body.name===undefined?s.name:name(body.name),encrypted,s.id,ctx.tenantId);
+        // Credential rotations can change row visibility even within the same DB.
+        // Invalidate existing AI evidence and in-flight reads of dependent datasets.
+        if(encrypted)for(const d of all(db,'SELECT id FROM datasets WHERE tenant_id=? AND datasource_id=?',ctx.tenantId,s.id)){
+          db.prepare('INSERT INTO dataset_policy_generations(tenant_id,dataset_id,revision) VALUES(?,?,1) ON CONFLICT(tenant_id,dataset_id) DO UPDATE SET revision=revision+1').run(ctx.tenantId,d.id);
+        }
         db.prepare('INSERT INTO source_assets(source_id,tenant_id,owner_id,updated_by,remark,version) VALUES(?,?,?,?,?,?) ON CONFLICT(source_id) DO UPDATE SET updated_by=excluded.updated_by,remark=excluded.remark,version=source_assets.version+1,updated_at=CURRENT_TIMESTAMP').run(s.id,ctx.tenantId,ctx.userId,ctx.userId,remark??current?.remark??'',version+1);
         audit(db,ctx,encrypted?'source.connection.rotate':'source.update','datasource',s.id);
       });return response({id:s.id,version:version+1,connectionUpdated:!!encrypted});
