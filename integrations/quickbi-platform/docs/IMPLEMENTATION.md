@@ -77,3 +77,10 @@ Tenant isolation for external sources is metadata/source-ownership isolation. Un
 - The first MySQL 8.4 run exposed uppercase `information_schema` result field names; explicit SQL aliases in `src/connectors.mjs` fixed table/column discovery. This issue was **not caught by fake drivers**.
 - CI evidence: [run 41811774198](https://github.com/w101723/deepseek-harness/actions/runs/41811774198), both jobs passed; live test 3/3 (PostgreSQL + MySQL + parent), existing unit suite also passed.
 - These tests prove the disposable CI environments only. **Real TiDB/StarRocks servers, external TLS/certificate policy and a real DeepSeek Harness model/tool round remain unverified.**
+
+## Batch 10 · SQL dataset immutable WHERE constraints (2026-11-05)
+
+- Added restricted single-table `SELECT ... FROM schema.table WHERE column op literal [AND ...]` parsing (up to 8 conditions) with strict syntax and metadata validation.
+- Persisted SQL selection and base filter list in the external dataset model. The typed SQL compiler binds all immutable predicates before caller filters and dataset policies, across AIPro, dashboard and scheduled query routes.
+- SQL dataset projection still restricts visible fields; hidden base predicate columns cannot be selected by the caller. Copied datasets retain the restrictions.
+- Added Node security tests and disposable PostgreSQL/MySQL live-driver SQL-dataset regression to CI. This is not general-purpose arbitrary SQL support or multi-table modeling.

@@ -46,12 +46,31 @@ export function assetsSources(db,ctx){
   return all(db,`SELECT d.*,a.owner_id,a.updated_by,a.updated_at,a.version,a.remark,u.name AS owner_name,m.name AS modifier_name FROM datasources d LEFT JOIN source_assets a ON a.source_id=d.id LEFT JOIN users u ON u.id=a.owner_id LEFT JOIN users m ON m.id=a.updated_by WHERE d.tenant_id=? ORDER BY COALESCE(a.updated_at,d.created_at) DESC`,ctx.tenantId).filter(d=>!permitted||permitted.has(d.id)).map(sourcePublic);
 }
 export function parseSelect(sql){
-  // One narrowly defined SELECT projection only. No user SQL reaches an engine.
-  if(typeof sql!=='string'||sql.length>2000)invalid('SQL 不合法或超过 2000 字符');
-  const m=/^\s*SELECT\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*){0,49})\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\s*;?\s*$/i.exec(sql);
-  if(!m)invalid('仅支持 SELECT 列名[,列名] FROM schema.table；暂不支持 JOIN、表达式或 WHERE');
-  const fields=m[1].split(',').map(s=>s.trim());if(new Set(fields).size!==fields.length)invalid('SQL 投影列不能重复');
-  return {schema:m[2],table:m[3],fields,normalized:`SELECT ${fields.join(', ')} FROM ${m[2]}.${m[3]}`};
+  // Parse only a single-table SELECT projection; never execute the supplied SQL.
+  // Immutable WHERE predicates are converted into typed, bound parameters.
+  if(typeof sql!=='string'||!sql.trim()||sql.length>2000)invalid('SQL 不合法或超过 2000 字符');
+  const text=sql.trim().replace(/;$/, '').trim();
+  if(text.includes(';')||/--|\/\*|\*\//.test(text))invalid('SQL 不允许多语句或注释');
+  const m=/^SELECT\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*){0,49})\s+FROM\s+([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+WHERE\s+(.+))?$/i.exec(text);
+  if(!m)invalid('仅支持 SELECT 字段 FROM schema.table [WHERE 字段 = 常量 AND ...]，不支持 JOIN、子查询、函数或 OR');
+  const fields=m[1].split(',').map(x=>x.trim());
+  if(new Set(fields).size!==fields.length)invalid('SQL 投影列不能重复');
+  const predicates=[];
+  let condition=m[4]?.trim()||'';
+  while(condition){
+    if(predicates.length>=8)invalid('WHERE 最多允许 8 个 AND 条件');
+    const found=/^([a-zA-Z_][a-zA-Z0-9_]*)\s*(=|<>|>=|<=|>|<)\s*('(?:[^']|'')*'|-?\d+(?:\.\d+)?)(?=\s+AND\s+|$)/i.exec(condition);
+    if(!found)invalid('WHERE 仅支持 字段 比较符 字符串/数字，多条件用 AND 连接');
+    const literal=found[3];
+    const value=literal[0]==="'"?literal.slice(1,-1).replace(/''/g,"'"):Number(literal);
+    if((typeof value==='string'&&value.length>200)||(typeof value==='number'&&!Number.isFinite(value)))invalid('SQL 过滤值无效');
+    const op=({'=':'eq','<>':'ne','>=':'gte','<=':'lte','>':'gt','<':'lt'})[found[2]];
+    predicates.push({field:found[1],op,value});
+    condition=condition.slice(found[0].length);
+    if(condition){const and=/^\s+AND\s+/i.exec(condition);if(!and)invalid('SQL WHERE 语法错误');condition=condition.slice(and[0].length);if(!condition)invalid('SQL WHERE 语法错误');}
+  }
+  const normalized='SELECT '+fields.join(', ')+' FROM '+m[2]+'.'+m[3]+(m[4]?' WHERE '+m[4].trim():'');
+  return {schema:m[2],table:m[3],fields,predicates,normalized};
 }
 function safePage(v,defaultValue,max){const n=Number(v??defaultValue);if(!Number.isInteger(n)||n<1||n>max)invalid('分页参数不合法');return n;}
 /** Schema discovery for one chosen table, no global 500-column discovery cap. */
@@ -150,8 +169,9 @@ export async function handleAssetRoute(db,ctx,method,path,body,options={}){
     edit(ctx);const src=source(db,ctx,body.datasourceId);if(src.kind==='demo-sqlite')invalid('SQL 数据集要求外部数据库');
     const select=parseSelect(body.sql),table=await discoverSingleTable(src,select.schema,select.table,options);
     if(!table)invalid('SQL 使用的表不存在或未授权',404);
-    const discovered=new Set(table.columns.map(c=>c.name));if(select.fields.some(f=>!discovered.has(f)))invalid('SQL 使用了不存在或未授权的字段',404);
+    const discovered=new Set(table.columns.map(c=>c.name));if([...select.fields,...select.predicates.map(f=>f.field)].some(f=>!discovered.has(f)))invalid('SQL 使用了不存在或未授权的字段',404);
     const model=modelFromTable({...table,columns:table.columns.filter(c=>select.fields.includes(c.name))});
+    model.baseFilters=select.predicates;model.sourceColumns=table.columns.map(c=>c.name);
     const did=randomUUID(),folderId=checkFolder(db,ctx,body.folderId,src.workspace_id);
     write(db,()=>{
       db.prepare('INSERT INTO datasets(id,tenant_id,workspace_id,datasource_id,name,dimensions_json,metrics_json) VALUES(?,?,?,?,?,?,?)').run(did,ctx.tenantId,src.workspace_id,src.id,name(body.name),JSON.stringify(model.dimensions),JSON.stringify(Object.keys(model.metrics)));

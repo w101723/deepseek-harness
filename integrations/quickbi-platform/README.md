@@ -131,3 +131,13 @@ Theme drafts now support a versioned glossary, business rules, and examples, man
 ## 数据源与数据集工作台（Batch 09）
 
 已新增数据源左右分栏、真实表服务端分页/指定表预览、数据集文件夹/搜索/筛选/排序/编辑/复制/删除。SQL 创建数据集仅支持 `SELECT col[,col] FROM schema.table` 的受限只读建模，不支持直接执行任意 SQL。API 和边界见 [docs/ASSET_WORKBENCH.md](docs/ASSET_WORKBENCH.md)。不包含 ETL。
+
+## SQL 数据集固定过滤条件（开发预览）
+
+数据源管理 → SQL 创建数据集，支持单表投影及 `WHERE`（`AND` 连接，最多 8 个 `=`、`<>`、`>=`、`<=`、`>`、`<` 字符串/数值条件）。例如：
+
+```sql
+SELECT amount FROM analytics.orders WHERE region = 'east' AND amount >= 150
+```
+
+所有标识符在创建时按真实数据源列校验；SQL 不直接执行。固定 WHERE 被解析成带类型的 `baseFilters` 存入模型，后续普通查询、AIPro、定时任务、看板查询统一应用，值由数据库驱动参数绑定，不能被使用者的额外筛选移除。仅投影字段可作为查询维度或指标，不暴露 WHERE 用到的其他源列。暂不支持 JOIN、OR、CTE、任意函数或多语句。详见 [docs/SQL_DATASETS.md](docs/SQL_DATASETS.md)。

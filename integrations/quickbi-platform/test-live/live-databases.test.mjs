@@ -173,6 +173,30 @@ test('real PostgreSQL/MySQL drivers: dataset → QuerySpec → AIPro → artifac
       assert.equal(injected.data.rows.length, 0, 'Filter must bind its value');
       assert.equal((await c.request('/api/query', 'POST', {...spec, metrics: ['delete_me']})).status, 400);
 
+      // Real-driver regression: SQL-dataset predicates remain immutable and bound.
+      const scoped = await c.request('/api/assets/datasets/sql', 'POST', {
+        datasourceId: sourceId, name: item.kind + ' east above 150',
+        sql: 'SELECT amount FROM ' + item.schema + ".quickbi_ci_orders WHERE region = 'east' AND amount >= 150",
+      });
+      assert.equal(scoped.status, 201, JSON.stringify(scoped.data));
+      const scopedQuery = await c.request('/api/query', 'POST', {
+        datasetId: scoped.data.id, dimensions: [], metrics: ['sum_amount','rows'], limit: 10,
+      });
+      assert.equal(scopedQuery.status, 200, JSON.stringify(scopedQuery.data));
+      assert.equal(Number(scopedQuery.data.rows[0].sum_amount), 200.75);
+      assert.equal(Number(scopedQuery.data.rows[0].rows), 1);
+      assert.ok(!scopedQuery.data.sql.includes("'east'"), 'WHERE values must be bound');
+      const extraFilter = await c.request('/api/query', 'POST', {
+        datasetId: scoped.data.id, dimensions: [], metrics: ['rows'],
+        filters: [{field:'amount',op:'gte',value:0}], limit:10,
+      });
+      assert.equal(extraFilter.status,200,JSON.stringify(extraFilter.data));
+      assert.equal(Number(extraFilter.data.rows[0].rows),1, 'Caller filter must not remove saved WHERE');
+      const hidden = await c.request('/api/query', 'POST', {
+        datasetId: scoped.data.id, dimensions: ['region'], metrics: ['rows'], limit:10,
+      });
+      assert.equal(hidden.status,400);
+
       const session = await c.request('/api/ai/sessions', 'POST', {datasetId, title: `CI ${item.kind} analysis`});
       assert.equal(session.status, 201);
       const analysis = await c.request(`/api/ai/sessions/${session.data.id}/ask`, 'POST', {question: '按照 region 分析 sum_amount'});

@@ -32,9 +32,13 @@ export function compileExternalQuery(db,ctx,spec){
   if(!Array.isArray(metrics)||metrics.length<1||metrics.length>4||new Set(metrics).size!==metrics.length||metrics.some(m=>!Object.hasOwn(model.metrics,m)))throw new InputError('不允许的指标');
   if(!Array.isArray(filters)||filters.length>8)throw new InputError('不允许的过滤条件');
   const policyFilters=validateQueryPolicy(db,ctx,dataset,{dimensions:dims,metrics,filters});
+  const baseFilters=model.baseFilters??[];
+  if(!Array.isArray(baseFilters)||baseFilters.length>8)throw new InputError('SQL 数据集过滤条件无效');
+  const sourceColumns=model.sourceColumns??model.dimensions;
+  if(!Array.isArray(sourceColumns))throw new InputError('SQL 数据集字段元数据无效');
   const q=n=>identifier(n,source.kind), params=[],where=[];
-  for(const f of [...filters,...policyFilters]){
-    if(!f||!model.dimensions.includes(f.field)||!Object.hasOwn(allowedOps,f.op))throw new InputError('不允许的过滤字段/操作');
+  for(const [f,base] of [...baseFilters.map(f=>[f,true]),...filters.map(f=>[f,false]),...policyFilters.map(f=>[f,false])]){
+    if(!f||!(base?sourceColumns:model.dimensions).includes(f.field)||!Object.hasOwn(allowedOps,f.op))throw new InputError('不允许的过滤字段/操作');
     if(!['string','number'].includes(typeof f.value)||String(f.value).length>200)throw new InputError('过滤值无效');
     params.push(f.value);where.push(`${q(f.field)} ${allowedOps[f.op]} ${bindPlaceholder(source.kind,params.length)}`);
   }
