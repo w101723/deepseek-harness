@@ -136,6 +136,19 @@ test('real PostgreSQL/MySQL drivers: dataset → QuerySpec → AIPro → artifac
       const preview = await c.request(`/api/datasources/${sourceId}/preview`);
       assert.equal(preview.status, 200);
       assert.equal(preview.data.rows.length, 3);
+      // Real PostgreSQL/MySQL checks for the source table browser and SQL datasets.
+      const indexed=await c.request(`/api/assets/sources/${sourceId}/tables?page=1&pageSize=15&q=quickbi_ci_orders`);
+      assert.equal(indexed.status,200,JSON.stringify(indexed.data));
+      assert.ok(indexed.data.items.some(x=>x.schema===item.schema&&x.name==='quickbi_ci_orders'));
+      const sample=await c.request(`/api/assets/sources/${sourceId}/preview?schema=${item.schema}&table=quickbi_ci_orders`);
+      assert.equal(sample.status,200,JSON.stringify(sample.data));
+      assert.equal(sample.data.rows.length,3);
+      const sqlDataset=await c.request('/api/assets/datasets/sql','POST',{datasourceId:sourceId,name:'SQL dataset '+item.kind,sql:`SELECT region, amount FROM ${item.schema}.quickbi_ci_orders`});
+      assert.equal(sqlDataset.status,201,JSON.stringify(sqlDataset.data));
+      const result=await c.request('/api/query','POST',{datasetId:sqlDataset.data.id,dimensions:['region'],metrics:['sum_amount'],filters:[{field:'region',op:'eq',value:'east'}],limit:10});
+      assert.equal(result.status,200,JSON.stringify(result.data));
+      assert.equal(Number(result.data.rows[0].sum_amount),301);
+      assert.equal((await c.request('/api/assets/datasets/sql','POST',{datasourceId:sourceId,name:'invalid',sql:`SELECT * FROM ${item.schema}.quickbi_ci_orders`})).status,400);
 
       const dataset = await c.request('/api/datasets', 'POST', {
         name: `Orders ${item.kind}`, datasourceId: sourceId,

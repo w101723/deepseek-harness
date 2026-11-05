@@ -1,6 +1,6 @@
 {
   "name": "@w101723/quickbi-platform-foundation",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Phase 1 AIPro data policies, guarded query tools, saved reports and safe exports",

@@ -8,6 +8,7 @@ import { narrateWithHarness } from './harness.mjs';
 import { SUPPORTED_SOURCES, validateConnection, encryptCredentials, sourcePublic, testSource, sourceSchema, sourcePreview } from './connectors.mjs';
 import { createExternalModel, executeAnyQuery } from './query-external.mjs';
 import { createAgentBridge, isLoopback } from './agent-bridge.mjs';
+import { ensureAssetSchema, handleAssetRoute } from './asset-manager.mjs';
 import { runNativeBiAgent } from './native-agent.mjs';
 import { exportArtifact } from './artifact-export.mjs';
 import { readableCatalog, listDatasetPolicies, setDatasetPolicy } from './dataset-policy.mjs';
@@ -16,7 +17,7 @@ import { topicDetails, listTopicKnowledge, updateTopic, addTopicKnowledge, remov
 import { listSchedules, getSchedule, createSchedule, updateSchedule, executeSchedule, listScheduleRuns, startScheduleWorker } from './scheduler.mjs';
 
 const publicDir=join(dirname(fileURLToPath(import.meta.url)),'../public');
-const assetMap={'/':'index.html','/app.js':'app.js','/styles.css':'styles.css'};
+const assetMap={'/':'index.html','/app.js':'app.js','/asset-workbench.js':'asset-workbench.js','/styles.css':'styles.css'};
 const json=(res,value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(value));};
 const fail=(status,message)=>{throw new InputError(message,status);};
 const clean=v=>typeof v==='string'?v.trim():'';
@@ -73,6 +74,7 @@ function publicUser(db,ctx){
 }
 export function createApp(opts={}){
   const db=openDatabase(opts.dbPath ?? ':memory:',{demoMode:opts.demoMode??false,bootstrapEmail:opts.bootstrapEmail,bootstrapPassword:opts.bootstrapPassword});
+  ensureAssetSchema(db);
   const connectorOptions={drivers:opts.drivers};
   const agentBridge=createAgentBridge(db,connectorOptions);
   const server=http.createServer(async(req,res)=>{
@@ -127,6 +129,11 @@ export function createApp(opts={}){
         if(!m)fail(403,'不可切换至未授权租户');
         db.prepare('UPDATE sessions SET tenant_id=?,csrf=? WHERE token_hash=?').run(b.tenantId,token(),ctx.tokenHash);
         const next=sessionFromRequest(db,req);audit(db,next,'tenant.switch','tenant',b.tenantId);return json(res,{user:publicUser(db,next)});
+      }
+      if(path.startsWith('/api/assets/')){
+        const body=method==='POST'||method==='PATCH'?await bodyJson(req):{};
+        const outcome=await handleAssetRoute(db,ctx,method,path,body,{...connectorOptions,query:Object.fromEntries(u.searchParams)});
+        return json(res,outcome.body,outcome.status);
       }
       if(path==='/api/workspaces'){
         if(method==='GET')return json(res,{items:list(db,'SELECT * FROM workspaces WHERE tenant_id=? ORDER BY created_at DESC',ctx.tenantId)});

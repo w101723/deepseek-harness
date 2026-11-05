@@ -127,3 +127,7 @@ API：`GET/POST /api/ai/schedules`、`GET/PATCH /api/ai/schedules/:id`、`POST /
 ### AIPro business topic knowledge
 
 Theme drafts now support a versioned glossary, business rules, and examples, managed from **分析主题 → 管理知识**. Edits demote published themes to drafts; existing analysis sessions are pinned to their original topic revision. REST contract and security notes: [docs/TOPIC_KNOWLEDGE.md](docs/TOPIC_KNOWLEDGE.md).
+
+## 数据源与数据集工作台（Batch 09）
+
+已新增数据源左右分栏、真实表服务端分页/指定表预览、数据集文件夹/搜索/筛选/排序/编辑/复制/删除。SQL 创建数据集仅支持 `SELECT col[,col] FROM schema.table` 的受限只读建模，不支持直接执行任意 SQL。API 和边界见 [docs/ASSET_WORKBENCH.md](docs/ASSET_WORKBENCH.md)。不包含 ETL。

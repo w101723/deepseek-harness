@@ -1,3 +1,4 @@
+import { installAssetWorkbench } from './asset-workbench.js';
 const state={user:null,workspaces:[],sources:[],datasets:[],dashboards:[],page:'home',workspaceId:null,activeDashboard:null,query:null,messages:[],aiSessions:[],aiSessionId:null,aiMessages:[],aiArtifacts:[],aiTopics:[],topicSelectedId:null,topicKnowledge:[],aiCanvases:[],aiCanvas:null,aiResult:null,canvasZoom:1,aiArtifactDetail:null,policyEditor:null,aiSchedules:[],aiScheduleRuns:null};
 const app=document.querySelector('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -269,5 +270,10 @@ app.addEventListener('submit',async e=>{
     await load();render();toast('已保存');
   }catch(err){toast(err.message);}
 });
+const assetWorkbench=installAssetWorkbench({state,api,shell,title,esc,toast,noData,app,actionHandlers,render});
+const originalLoad=load;
+load=async()=>{await originalLoad();await assetWorkbench.load();};
+sourcesPage=assetWorkbench.sourcesPage;
+datasetsPage=assetWorkbench.datasetsPage;
 (async()=>{try{const me=await api('/api/me');state.user=me.user;await load();}catch{state.user=null;}render();})();
 
